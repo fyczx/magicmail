@@ -14,6 +14,30 @@
 
 ## 问题列表
 
+### 163/126 等网易邮箱无法发送邮件
+
+- **状态**：✅ 已修复未发布
+- **反馈时间**：2026-07-01
+- **问题描述**：使用 163、126 等网易邮箱时，虽然可以正常收信（IMAP），但无法发送邮件（SMTP）。原因是用户在添加账号时通常只填写 IMAP 服务器地址，系统未能正确推断对应的 SMTP 服务器地址和端口，导致 SMTP 连接失败。
+- **修复方案**：
+  1. 新增常见邮箱服务商的 SMTP 服务器映射表（`smtpHostMap`），支持 163、126、QQ、新浪、阿里云、Gmail、Yahoo、Outlook 等主流邮箱；
+  2. 新增 SMTP 端口映射表（`smtpPortMap`），针对不同服务商使用正确的端口（如网易系使用 465 SSL/TLS，Gmail/Outlook 使用 587 STARTTLS）；
+  3. 实现 `inferSMTPHost()` 函数，根据 IMAP 地址自动推断 SMTP 服务器地址（优先匹配已知服务商，否则将 `imap.` 替换为 `smtp.`）；
+  4. 实现 `DefaultSmtpPort()` 函数，根据 SMTP 服务器地址返回正确的默认端口。
+- **涉及文件**：`server/models/mail_account.go`
+
+### IMAP IDLE 不兼容部分邮件服务器
+
+- **状态**：✅ 已修复未发布
+- **反馈时间**：2026-07-01
+- **问题描述**：部分邮件服务器不支持 IMAP IDLE 命令（RFC 2177），当 Worker 尝试使用 IDLE 实时监听时会报错并反复重试，导致日志大量错误信息，且每次重启都会重新尝试。
+- **修复方案**：
+  1. 新增 IDLE 支持服务器白名单（`idleVerifiedServers`），仅对 Gmail、Yahoo、Outlook、QQ 等已验证服务器启用 IDLE；
+  2. 新增运行时学习机制（`idleLearnedUnsupported`），首次遇到不支持的 IDLE 错误（包含 "BAD"、"not support"、"not allowed" 关键字）时，自动将该服务器标记为不支持并加入全局黑名单；
+  3. 后续同服务器的其他 Worker 可共享黑名单信息，避免重复尝试。
+- **涉及文件**：`server/imap/worker.go`
+- **备注**：未知服务器仍会首次尝试 IDLE，失败后自动降级为轮询模式（30秒间隔），符合渐进式兼容策略。
+
 ### SMTP 邮件头部 CRLF 注入漏洞 (CWE-93)
 
 - **状态**：✅ 已修复未发布
@@ -52,3 +76,36 @@
 - **问题描述**：在 768px ~ 900px 宽度区间，邮箱管理页面的桌面端 Grid 布局会导致邮箱地址信息与右侧操作按钮（编辑、同步、删除）发生重叠，影响使用体验。
 - **修复方案**：将 `AccountManage.vue` 的响应式断点从 `768px` 调整为 `900px`，使中等屏幕更早切换到卡片布局。
 - **涉及文件**：`web/src/views/AccountManage.vue`
+
+---
+
+## 功能更新记录
+
+> 本节记录最新版本新增的功能特性（非问题修复）。
+
+### v1.x (开发中)
+
+#### 批量标记已读/未读功能 (2026-07-01)
+
+- **功能描述**：邮件列表新增"标为未读"按钮，支持批量选择邮件后一键标记为已读或未读状态
+- **API 接口**：`POST /api/v1/mails/batch-read`
+- **请求参数**：`{ ids: number[], is_read: boolean }`
+- **响应数据**：`{ success: boolean, updated: number, failed: number[], message: string }`
+- **前端入口**：邮件列表批量操作栏 → "标为未读"按钮
+- **涉及文件**：
+  - 后端：`server/handlers/mail_handler.go`, `server/services/mail_service.go`, `server/routes/routes.go`
+  - 前端：`web/src/api/mail.js`, `web/src/stores/mailStore.js`, `web/src/views/MailListView.vue`
+
+#### 每页显示邮件数量设置 (2026-07-01)
+
+- **功能描述**：设置页面新增"每页显示数量"选项，允许用户自定义邮件列表的分页大小（10/20/30/50/100 封/页）
+- **实现方式**：
+  - 使用 `localStorage` 持久化设置（key: `mail-page-size`）
+  - 全局响应式状态管理（`appStore.mailPageSize`）
+  - 设置变更后自动刷新邮件列表并跳转到第一页
+- **默认值**：20 封/页
+- **涉及文件**：
+  - `web/src/stores/appStore.js`（状态管理与持久化）
+  - `web/src/views/MailListView.vue`（监听设置变化）
+  - `web/src/views/SettingsView.vue`（设置 UI）
+
