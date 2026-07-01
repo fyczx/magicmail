@@ -372,6 +372,14 @@ export const useAppStore = defineStore('app', () => {
       root.setProperty(name, value)
     }
     localStorage.setItem('primary-color', primaryColor.value)
+    // 同步更新 meta theme-color（影响移动端浏览器地址栏颜色）
+    let metaTheme = document.querySelector('meta[name="theme-color"]')
+    if (!metaTheme) {
+      metaTheme = document.createElement('meta')
+      metaTheme.name = 'theme-color'
+      document.head.appendChild(metaTheme)
+    }
+    metaTheme.content = primaryColor.value
   }
 
   function setPrimaryColor(hex) {
