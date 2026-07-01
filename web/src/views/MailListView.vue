@@ -18,6 +18,12 @@
           </label>
         </div>
         <div class="batch-actions">
+          <button class="btn-batch-success" @click="handleBatchMarkRead">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M12 4L5.5 10.5L2 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            标为已读
+          </button>
           <button class="btn-batch-primary" @click="handleBatchMarkUnread">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 4h10M5 8h7M7 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -421,6 +427,20 @@ async function handleBatchDelete() {
   }
 }
 
+async function handleBatchMarkRead() {
+  if (selectedIds.value.length === 0) return
+  const count = selectedIds.value.length
+  try {
+    await mailStore.batchMarkAsRead(selectedIds.value, true)
+    toast.success(`已将 ${count} 封邮件标记为已读`)
+    clearSelection()
+    // 刷新统计信息（更新标签计数器）
+    mailStore.fetchStats()
+  } catch (e) {
+    toast.error('标记已读失败: ' + e.message)
+  }
+}
+
 async function handleBatchMarkUnread() {
   if (selectedIds.value.length === 0) return
   const count = selectedIds.value.length
@@ -428,6 +448,8 @@ async function handleBatchMarkUnread() {
     await mailStore.batchMarkAsRead(selectedIds.value, false)
     toast.success(`已将 ${count} 封邮件标记为未读`)
     clearSelection()
+    // 刷新统计信息（更新标签计数器）
+    mailStore.fetchStats()
   } catch (e) {
     toast.error('标记未读失败: ' + e.message)
   }
@@ -630,6 +652,21 @@ function stopRefreshTimer() {
   transition: all var(--transition-fast);
 }
 .btn-batch-primary:hover { background: var(--primary-600, #435ce5); }
+.btn-batch-success {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: #fff;
+  background: var(--success, #10b981);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.btn-batch-success:hover { background: #059669; }
 .btn-batch-text {
   padding: 6px 14px;
   font-size: var(--font-size-sm);
