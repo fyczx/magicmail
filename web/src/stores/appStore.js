@@ -15,6 +15,15 @@ export const POLL_INTERVAL_OPTIONS = [
   { value: 300000,  label: '5 分钟' },
 ]
 
+// 每页显示数量选项（用于设置页面）
+export const PAGE_SIZE_OPTIONS = [
+  { value: 10, label: '10 封/页' },
+  { value: 20, label: '20 封/页' },
+  { value: 30, label: '30 封/页' },
+  { value: 50, label: '50 封/页' },
+  { value: 100, label: '100 封/页' },
+]
+
 // 预设主题色选项
 export const PRESET_COLORS = [
   { value: '#4F6EF7', label: '默认蓝' },
@@ -271,6 +280,7 @@ export const useAppStore = defineStore('app', () => {
   const mailLoadImages = ref(false)     // 加载远程图片
   const mailFontSize = ref('medium')   // 'small' | 'medium' | 'large'
   const mailRenderMode = ref('inline') // 'inline' | 'iframe'
+  const mailPageSize = ref(20)         // 每页显示邮件数量
 
   // --- 数据同步设置 ---
   const pollInterval = ref(60000)      // 轮询间隔（毫秒），默认 60 秒
@@ -309,6 +319,14 @@ export const useAppStore = defineStore('app', () => {
     const savedRenderMode = localStorage.getItem('mail-render-mode')
     if (savedRenderMode && ['inline', 'iframe'].includes(savedRenderMode)) {
       mailRenderMode.value = savedRenderMode
+    }
+
+    const savedPageSize = localStorage.getItem('mail-page-size')
+    if (savedPageSize) {
+      const parsed = parseInt(savedPageSize, 10)
+      if (!isNaN(parsed) && [10, 20, 30, 50, 100].includes(parsed)) {
+        mailPageSize.value = parsed
+      }
     }
 
     // 加载数据同步设置
@@ -403,6 +421,12 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('mail-render-mode', mode)
   }
 
+  function setMailPageSize(size) {
+    if (![10, 20, 30, 50, 100].includes(size)) return
+    mailPageSize.value = size
+    localStorage.setItem('mail-page-size', String(size))
+  }
+
   // --- 数据同步设置操作 ---
   function setPollInterval(ms) {
     if (ms < 10000) return // 最少 10 秒
@@ -420,11 +444,11 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     themeMode, isDark, primaryColor, searchKeyword, isLoading, unreadCount,
-    mailButtonCenter, mailLoadImages, mailFontSize, mailRenderMode,
+    mailButtonCenter, mailLoadImages, mailFontSize, mailRenderMode, mailPageSize,
     pollInterval, connectionMode, lastRefreshAt,
     MAIL_FONT_SIZES,
     initTheme, toggleTheme, setTheme, setPrimaryColor, isValidColor,
-    setMailButtonCenter, setMailLoadImages, setMailFontSize, setMailRenderMode,
+    setMailButtonCenter, setMailLoadImages, setMailFontSize, setMailRenderMode, setMailPageSize,
     setPollInterval, setConnectionMode, touchRefresh,
     setSearchKeyword, setLoading, setUnreadCount,
   }

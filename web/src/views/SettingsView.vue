@@ -295,6 +295,22 @@
             >{{ opt.label }}</button>
           </div>
         </div>
+
+        <div class="setting-row" style="align-items: flex-start; padding-top: var(--space-lg);">
+          <div class="setting-info">
+            <strong>每页显示数量</strong>
+            <small>邮件列表每页显示的邮件数量</small>
+          </div>
+          <select
+            class="poll-select"
+            :value="mailPageSize"
+            @change="handlePageSizeChange(Number($event.target.value))"
+          >
+            <option v-for="opt in pageSizeOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
       </section>
 
       <!-- 关于信息 -->
@@ -375,7 +391,7 @@
 defineOptions({ name: 'Settings' })
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAppStore } from '@/stores/appStore'
-import { PRESET_COLORS, POLL_INTERVAL_OPTIONS } from '@/stores/appStore'
+import { PRESET_COLORS, POLL_INTERVAL_OPTIONS, PAGE_SIZE_OPTIONS } from '@/stores/appStore'
 import { useSSE } from '@/composables/useSSE'
 import { useToast } from '@/composables/useToast'
 import { useUpdateCheck } from '@/composables/useUpdateCheck'
@@ -532,6 +548,7 @@ const mailButtonCenter = computed(() => appStore.mailButtonCenter)
 const mailLoadImages = computed(() => appStore.mailLoadImages)
 const mailFontSize = computed(() => appStore.mailFontSize)
 const mailRenderMode = computed(() => appStore.mailRenderMode)
+const mailPageSize = computed(() => appStore.mailPageSize)
 
 const fontSizeOptions = [
   { value: 'small', label: '小' },
@@ -543,6 +560,13 @@ const renderModeOptions = [
   { value: 'inline', label: '内联渲染', desc: '直接嵌入页面，支持自定义样式覆盖' },
   { value: 'iframe', label: 'iframe 沙箱', desc: '隔离渲染，更接近原始邮件效果' },
 ]
+
+const pageSizeOptions = PAGE_SIZE_OPTIONS
+
+function handlePageSizeChange(size) {
+  appStore.setMailPageSize(size)
+  toast.success(`每页显示数量已设为 ${size} 封`)
+}
 
 // --- Webhook 管理 ---
 const webhooks = ref([])

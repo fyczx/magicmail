@@ -457,7 +457,18 @@ watch(sseMode, (mode) => {
   if (mode) appStore.setConnectionMode(mode)
 }, { immediate: true })
 
+// 监听全局每页显示数量设置变化
+watch(() => appStore.mailPageSize, (newSize) => {
+  if (newSize && newSize !== mailStore.pageSize) {
+    mailStore.pageSize = newSize
+    mailStore.fetchMails(1) // 重置到第一页并刷新
+  }
+})
+
 onMounted(async () => {
+  // 初始化每页显示数量（从全局设置）
+  mailStore.pageSize = appStore.mailPageSize
+
   // 加载账号列表（用于筛选器）
   if (accountStore.accounts.length === 0) {
     await accountStore.fetchAccounts()
