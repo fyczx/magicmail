@@ -5,6 +5,7 @@ package models
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"magicmail/crypto"
@@ -91,6 +92,12 @@ func (a *MailAccount) setDefaultValues() {
 	if a.Port == 0 {
 		a.Port = DefaultPort(a.Protocol)
 	}
+	if a.SmtpPort == 0 {
+		a.SmtpPort = DefaultSmtpPort(a.ImapHost) // 根据收信服务器智能推断SMTP端口
+	}
+	if a.SmtpHost == "" && a.ImapHost != "" {
+		a.SmtpHost = inferSMTPHost(a.ImapHost) // 自动推断SMTP服务器地址
+	}
 	if a.SyncMode == "" {
 		a.SyncMode = "unread" // 默认只同步未读邮件
 	}
@@ -127,7 +134,53 @@ func DefaultPort(protocol string) int {
 	}
 }
 
-// AccountRequest 新增/编辑邮箱的请求体（不暴露密码字段）
+// smtpHostMap 收信服务器到SMTP服务器的映射（常见邮箱服务商）
+var smtpHostMap = map[string]string{
+	"imap.163.com":         "smtp.163.com",
+	"imap.126.com":         "smtp.126.com",
+	"imap.qq.com":          "smtp.qq.com",
+	"imap.sina.com":        "smtp.sina.com",
+	"imap.aliyun.com":      "smtp.aliyun.com",
+	"imap.gmail.com":       "smtp.gmail.com",
+	"imap.mail.yahoo.com":  "smtp.mail.yahoo.com",
+	"outlook.office365.com": "smtp.office365.com",
+}
+
+// smtpPortMap SMTP服务器到默认端口的映射
+var smtpPortMap = map[string]int{
+	"smtp.163.com":           465, // 163邮箱使用SSL/TLS
+	"smtp.126.com":           465,
+	"smtp.qq.com":            465,
+	"smtp.sina.com":          465,
+	"smtp.aliyun.com":        465,
+	"smtp.mail.yahoo.com":    465,
+	"smtp.office365.com":     587, // Outlook使用STARTTLS
+	"smtp.gmail.com":         587, // Gmail使用STARTTLS
+}
+
+// DefaultSmtpPort 根据收信服务器或SMTP服务器地址推断默认SMTP端口
+func DefaultSmtpPort(imapHost string) int {
+	// 先检查是否有直接的SMTP端口映射
+	if port, ok := smtpPortMap[imapHost]; ok {
+		return port
+	}
+	// 检查是否在已知SMTP主机映射中
+	if smtpHost, ok := smtpHostMap[imapHost]; ok {
+		if port, ok := smtpPortMap[smtpHost]; ok {
+			return port
+		}
+	}
+	return 587 // 默认使用STARTTLS端口
+}
+
+// inferSMTPHost 根据收信服务器地址推断SMTP服务器地址
+func inferSMTPHost(imapHost string) string {
+	if smtpHost, ok := smtpHostMap[imapHost]; ok {
+		return smtpHost
+	}
+	// 通用规则：将 imap 替换为 smtp
+	return strings.Replace(imapHost, "imap.", "smtp.", 1)
+}
 type AccountRequest struct {
 	Name         string `json:"name" validate:"required,min=1,max=100"`
 	Email        string `json:"email" validate:"required,email"`
