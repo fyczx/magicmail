@@ -33,6 +33,11 @@ export function batchDeleteMails(ids) {
   return request.post('/mails/batch-delete', { ids })
 }
 
+// 批量标记已读/未读
+export function batchMarkAsRead(ids, isRead) {
+  return request.post('/mails/batch-read', { ids, is_read: isRead })
+}
+
 // 获取统计
 export function getMailStats(params = {}) {
   return request.get('/mails/stats', { params })

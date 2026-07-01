@@ -18,6 +18,12 @@
           </label>
         </div>
         <div class="batch-actions">
+          <button class="btn-batch-primary" @click="handleBatchMarkUnread">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 4h10M5 8h7M7 12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            标为未读
+          </button>
           <button class="btn-batch-danger" @click="handleBatchDelete">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 4h10m-8.67 0V2.67A1.33 1.33 0 0 1 4.67 1.34h4.66a1.33 1.33 0 0 1 1.34 1.33V4m2 0v7.33A1.33 1.33 0 0 1 11.34 13H2.67a1.33 1.33 0 0 1-1.34-1.33V4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -415,6 +421,18 @@ async function handleBatchDelete() {
   }
 }
 
+async function handleBatchMarkUnread() {
+  if (selectedIds.value.length === 0) return
+  const count = selectedIds.value.length
+  try {
+    await mailStore.batchMarkAsRead(selectedIds.value, false)
+    toast.success(`已将 ${count} 封邮件标记为未读`)
+    clearSelection()
+  } catch (e) {
+    toast.error('标记未读失败: ' + e.message)
+  }
+}
+
 // --- 生命周期 ---
 let refreshTimer = null
 
@@ -586,6 +604,21 @@ function stopRefreshTimer() {
   transition: all var(--transition-fast);
 }
 .btn-batch-danger:hover { background: #dc2626; }
+.btn-batch-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  color: #fff;
+  background: var(--primary-500, #4f6ef7);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.btn-batch-primary:hover { background: var(--primary-600, #435ce5); }
 .btn-batch-text {
   padding: 6px 14px;
   font-size: var(--font-size-sm);

@@ -237,6 +237,34 @@ func (h *MailHandler) BatchDelete(c *fiber.Ctx) error {
 	})
 }
 
+// BatchMarkAsRead 批量标记邮件已读/未读状态
+func (h *MailHandler) BatchMarkAsRead(c *fiber.Ctx) error {
+	var req struct {
+		IDs    []uint `json:"ids"`
+		IsRead bool   `json:"is_read"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "请求参数解析失败"})
+	}
+	if len(req.IDs) == 0 {
+		return c.Status(400).JSON(fiber.Map{"error": "请选择要操作的邮件"})
+	}
+
+	result := h.service.BatchMarkAsRead(req.IDs, req.IsRead)
+
+	status := "未读"
+	if req.IsRead {
+		status = "已读"
+	}
+
+	return c.JSON(fiber.Map{
+		"success": result.Success,
+		"updated": result.Updated,
+		"failed":  result.Failed,
+		"message": fmt.Sprintf("已将 %d 封邮件标记为%s", result.Updated, status),
+	})
+}
+
 // GetStats 获取邮件统计信息
 // @Summary 邮件统计
 // @Tags 邮件管理

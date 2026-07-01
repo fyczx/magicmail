@@ -3,7 +3,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getMails, getMailById, markAsRead as apiMarkRead, deleteMail as apiDeleteMail, batchDeleteMails as apiBatchDelete, getMailStats } from '@/api/mail'
+import { getMails, getMailById, markAsRead as apiMarkRead, deleteMail as apiDeleteMail, batchDeleteMails as apiBatchDelete, batchMarkAsRead as apiBatchMarkRead, getMailStats } from '@/api/mail'
 
 export const useMailStore = defineStore('mail', () => {
   // --- 状态 ---
@@ -148,6 +148,45 @@ export const useMailStore = defineStore('mail', () => {
     }
   }
 
+  // --- 批量标记已读/未读 ---
+  async function batchMarkAsRead(ids, isRead) {
+    try {
+      // 统计操作前的状态变化（用于计算未读计数）
+      const targetMails = mails.value.filter(m => ids.includes(m.id))
+
+      // 计算未读计数变化量
+      let unreadDelta = 0
+      if (isRead) {
+        // 标记为已读：原来未读的邮件数量 = 未读计数减少量
+        unreadDelta = -targetMails.filter(m => !m.is_read).length
+      } else {
+        // 标记为未读：原来已读的邮件数量 = 未读计数增加量
+        unreadDelta = targetMails.filter(m => m.is_read).length
+      }
+
+      // 调用 API
+      await apiBatchMarkRead(ids, isRead)
+
+      // 更新本地列表状态
+      const idSet = new Set(ids)
+      mails.value.forEach(mail => {
+        if (idSet.has(mail.id)) {
+          mail.is_read = isRead
+        }
+      })
+
+      // 同步更新未读计数器
+      if (unreadDelta !== 0) {
+        stats.value = { ...stats.value, unread: Math.max(0, (stats.value.unread || 0) + unreadDelta) }
+      }
+
+      return { updated: targetMails.length }
+    } catch (e) {
+      console.error('[mailStore] 批量标记已读失败:', e.message)
+      throw e
+    }
+  }
+
   // --- 更新筛选条件并刷新 ---
   function setFilter(key, value) {
     filters.value[key] = value
@@ -184,7 +223,7 @@ export const useMailStore = defineStore('mail', () => {
   return {
     mails, currentMail, total, currentPage, pageSize,
     filters, loading, error, hasMore, stats,
-    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails,
+    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails, batchMarkAsRead,
     setFilter, resetFilters, fetchStats,
   }
 })

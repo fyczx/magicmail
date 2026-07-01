@@ -220,6 +220,31 @@ func (s *MailService) MarkAsRead(id uint, isRead bool) error {
 		Update("is_read", isRead).Error
 }
 
+// BatchMarkAsReadResult 批量标记已读/未读操作结果
+type BatchMarkAsReadResult struct {
+	Success bool   `json:"success"`
+	Updated int64  `json:"updated"`
+	Failed  []uint `json:"failed"`
+}
+
+// BatchMarkAsRead 批量标记邮件已读/未读状态
+func (s *MailService) BatchMarkAsRead(ids []uint, isRead bool) *BatchMarkAsReadResult {
+	result := &BatchMarkAsReadResult{}
+
+	// 批量更新数据库（使用 IN 查询，一次 SQL 完成）
+	dbResult := s.db.Model(&models.Mail{}).Where("id IN ?", ids).
+		Update("is_read", isRead)
+
+	if dbResult.Error != nil {
+		result.Failed = ids
+		return result
+	}
+
+	result.Updated = dbResult.RowsAffected
+	result.Success = true
+	return result
+}
+
 // MarkAsStarred 标记邮件星标
 func (s *MailService) MarkAsStarred(id uint, starred bool) error {
 	return s.db.Model(&models.Mail{}).Where("id = ?", id).
