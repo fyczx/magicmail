@@ -352,14 +352,6 @@ onUnmounted(() => {
 }
 
 .collapsed .nav-item { justify-content: center; padding: 10px; }
-.collapsed .nav-item.active::before {
-  left: 50%;
-  top: auto;
-  transform: translateX(-50%);
-  width: 24px;
-  height: 3px;
-  border-radius: 3px;
-}
 
 .nav-icon {
   display: flex;
