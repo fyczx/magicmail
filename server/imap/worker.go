@@ -36,6 +36,21 @@ type WorkerPool struct {
 
 var globalPool *WorkerPool
 
+// idleVerifiedServers 已确认支持 IMAP IDLE 的服务器白名单
+// 只有经过验证的服务器才会尝试IDLE，未知服务器首次会尝试并记录结果
+var idleVerifiedServers = map[string]bool{
+	"imap.gmail.com":          true, // Gmail - RFC2177 标准实现
+	"imap.mail.yahoo.com":     true, // Yahoo Mail - 支持IDLE
+	"outlook.office365.com":   true, // Outlook/Exchange Online - 支持IDLE
+	"imap.qq.com":             true, // QQ邮箱 - 支持IDLE (需确认)
+}
+
+// idleLearnedUnsupported 运行时学习到的、已确认不支持IDLE的服务器（全局共享）
+var (
+	idleLearnedUnsupported = make(map[string]bool)
+	idleLearnMu            sync.RWMutex // 保护并发访问
+)
+
 // GlobalPool exposes the worker pool for external packages (services/handlers)
 // Returns nil if workers haven't been started yet
 func GlobalPool() *WorkerPool {
@@ -130,17 +145,18 @@ func (p *WorkerPool) RestartWorker(account *models.MailAccount) {
 
 // AccountWorker 单个邮箱账号的同步 Worker
 type AccountWorker struct {
-	account    *models.MailAccount
-	db         *gorm.DB
-	config     *config.Config
-	sem        chan struct{}
-	shutdownCh chan struct{}
-	stopCh     chan struct{} // 该 Worker 的独立停止通道
+	account         *models.MailAccount
+	db              *gorm.DB
+	config          *config.Config
+	sem             chan struct{}
+	shutdownCh      chan struct{}
+	stopCh          chan struct{} // 该 Worker 的独立停止通道
+	idleUnsupported bool          // 标记该账号是否不支持IDLE（避免重复尝试）
 }
 
 // NewAccountWorker 创建新的账号 Worker
 func NewAccountWorker(account *models.MailAccount, db *gorm.DB, cfg *config.Config, sem chan struct{}, shutdownCh chan struct{}) *AccountWorker {
-	return &AccountWorker{
+	w := &AccountWorker{
 		account:    account,
 		db:         db,
 		config:     cfg,
@@ -148,6 +164,15 @@ func NewAccountWorker(account *models.MailAccount, db *gorm.DB, cfg *config.Conf
 		shutdownCh: shutdownCh,
 		stopCh:     make(chan struct{}),
 	}
+	
+	// 策略：默认尝试IDLE，除非已知该服务器不支持（通过运行时学习）
+	// 不在白名单的服务器也会首次尝试IDLE，失败后自动标记为不支持
+	if !idleVerifiedServers[account.ImapHost] {
+		log.Printf("ℹ️  %s (%s) 未在IDLE支持列表中，将首次尝试IDLE（失败后将自动禁用）", 
+			account.Email, account.ImapHost)
+	}
+	
+	return w
 }
 
 // Run 启动 Worker 主循环：先做一次全量同步，然后进入 IDLE（仅 IMAP）或轮询模式
@@ -171,9 +196,17 @@ func (w *AccountWorker) Run() {
 			w.syncOnce()
 		default:
 			// 仅 IMAP 协议支持 IDLE 实时监听；POP3 不支持 IDLE，直接等待下次轮询
-			if w.isIMAP() && w.config.IMAP.IDLEEnabled {
+			if w.isIMAP() && w.config.IMAP.IDLEEnabled && !w.isIDLEUnsupported() {
 				if err := w.idleLoop(); err != nil {
-					log.Printf("⚠️  IDLE 异常 (%s): %v，降级为轮询", w.account.Email, err)
+					// 检查是否为"不支持IDLE"的错误，如果是则全局标记
+					errMsg := err.Error()
+					if strings.Contains(errMsg, "BAD") || strings.Contains(errMsg, "not support") || strings.Contains(errMsg, "not allowed") {
+						w.markIDLEUnsupported()
+						log.Printf("⚠️  %s (%s) 不支持 IDLE，已记录到全局黑名单（将使用轮询模式）: %v", 
+							w.account.Email, w.account.ImapHost, err)
+					} else {
+						log.Printf("⚠️  IDLE 异常 (%s): %v，降级为轮询", w.account.Email, err)
+					}
 					select {
 					case <-time.After(30 * time.Second):
 					case <-w.stopCh:
@@ -360,6 +393,32 @@ func (w *AccountWorker) syncOnce() {
 // isIMAP 判断当前账号是否为 IMAP 协议
 func (w *AccountWorker) isIMAP() bool {
 	return w.account.Protocol != "pop3" && w.account.Protocol != "pop3-no-ssl"
+}
+
+// isIDLEUnsupported 检查该账号的服务器是否已知不支持IDLE（本地 + 全局）
+func (w *AccountWorker) isIDLEUnsupported() bool {
+	if w.idleUnsupported {
+		return true
+	}
+	
+	// 检查全局学习列表
+	idleLearnMu.RLock()
+	defer idleLearnMu.RUnlock()
+	return idleLearnedUnsupported[w.account.ImapHost]
+}
+
+// markIDLEUnsupported 将该服务器标记为不支持IDLE（写入全局共享内存）
+func (w *AccountWorker) markIDLEUnsupported() {
+	w.idleUnsupported = true
+	
+	// 写入全局学习列表，让其他同服务器的Worker也能受益
+	idleLearnMu.Lock()
+	defer idleLearnMu.Unlock()
+	
+	if !idleLearnedUnsupported[w.account.ImapHost] {
+		idleLearnedUnsupported[w.account.ImapHost] = true
+		log.Printf("📝 已将 %s 加入 IDLE 不支持黑名单", w.account.ImapHost)
+	}
 }
 
 // idleLoop 进入 IDLE 监听循环，等待服务器推送新邮件通知
