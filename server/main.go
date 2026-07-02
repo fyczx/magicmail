@@ -4,8 +4,10 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
+	"strings"
 	"time"
 	"magicmail/config"
 	"magicmail/crypto"
@@ -14,6 +16,7 @@ import (
 	"magicmail/sse"
 	"magicmail/routes"
 
+	"github.com/emersion/go-message"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
@@ -29,6 +32,18 @@ var isProduction = "false"
 // @BasePath        /api/v1
 
 func main() {
+	// ⭐ 全局设置 go-message 的字符集解码器
+	// 重要：此处返回透传(passthrough)，不让 go-message 自行解码 body！
+	// 原因：go-message 内部对 CharsetReader 返回值的处理有 bug，会导致
+	//       双重编码(Mojibake)：GBK→UTF-8→Latin-1→UTF-8 = 乱码
+	//       我们在 fetcher.go 的 decodeTextContentWithCharset() 中自行正确解码
+	message.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
+		cs := strings.ToLower(strings.Trim(charset, "\"' \t"))
+		log.Printf("🔍 [global-CharsetReader] called with charset=%q, normalized=%q → PASSTHROUGH (raw bytes)", charset, cs)
+		// ⭐ 一律透传，返回原始字节流，由调用方自行解码
+		return input, nil
+	}
+
 	// 生产构建自动静默 SQL 日志（database 包读取此环境变量）
 	if isProduction == "true" {
 		os.Setenv("MAGICMAIL_ENV", "production")

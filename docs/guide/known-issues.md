@@ -5,6 +5,27 @@
 
 ## 问题列表
 
+### 企业微信邮件中文乱码 (GBK/GB18030 编码)
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-07-02
+- **问题描述**：接收企业微信邮箱（`@exmail.weixin.qq.com`）的邮件时，邮件正文中的中文字符显示为乱码（如 `浣犲ソ锛岀粏鐣岀箒鏄�`），而标题和发件人/收件人显示正常。该问题仅影响使用 `gb18030`/`gbk` 字符集编码的非 UTF-8 邮件。
+- **根因分析**：
+  1. Go 标准库 `mime.WordDecoder` 默认只支持 UTF-8，无法解码 RFC 2047 头部中声明的 GBK/GB18030 字符集；
+  2. `go-message` 库的全局 `message.CharsetReader` 虽然被正确调用并返回了 GBK 解码器，但其**内部对 CharsetReader 返回值的处理存在缺陷**，导致双重编码（Mojibake）：原始 GBK 字节 → 正确解码为 UTF-8 → 又被当作 Latin-1 读入 → 再次编码为 UTF-8 = 最终乱码；
+  3. 含大量 ASCII HTML 标签的正文在自动检测时会被误判为有效 UTF-8，跳过了手动解码步骤。
+- **修复方案**：
+  1. **全局 CharsetReader 改为透传**：将 `message.CharsetReader` 设为始终返回原始输入流，阻止 `go-message` 自行解码 body；
+  2. **自定义解码函数 `decodeTextContentWithCharset()`**：根据 MIME 头部声明的 charset 参数精确选择解码器（`simplifiedchinese.GBK.NewDecoder()`），一次性正确转换为目标 UTF-8 字符串；
+  3. **头部字段解码**：使用带 `CharsetReader` 回调的 `mime.WordDecoder` 解码 Subject、From/To 显示名等 RFC 2047 编码头部；
+  4. **Charset 值清理**：所有读取 charset 的位置均添加 `strings.Trim(charset, "\"' \t")`，处理 MIME 声明中可能包裹的引号。
+- **涉及文件**：
+  - `server/main.go` — 全局 `message.CharsetReader` 设置（透传模式）
+  - `server/imap/fetcher.go` — IMAP 邮件正文/头部解码逻辑
+  - `server/pop3/fetcher.go` — POP3 邮件正文/头部解码逻辑
+  - `server/services/attachment_service.go` — 附件名 RFC 2047 解码
+- **依赖新增**：`golang.org/x/text v0.21.0`（`simplifiedchinese.GBK` 解码器）
+
 ### 163/126 等网易邮箱无法发送邮件
 
 - **状态**：✅ 已修复并于v1.1.0发布

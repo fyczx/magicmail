@@ -17,6 +17,9 @@ import (
 	"magicmail/config"
 	"magicmail/models"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 	"gorm.io/gorm"
 
 	"github.com/emersion/go-message"
@@ -279,11 +282,15 @@ func (f *POP3Fetcher) parseEntityRecursive(entity *message.Entity, mailObj *mode
 	switch {
 	case strings.HasPrefix(mediaType, "text/plain"):
 		textData, _ := io.ReadAll(entity.Body)
-		mailObj.TextBody.String = string(textData)
+		charset := strings.ToLower(strings.Trim(params["charset"], "\"' \t"))
+		decoded := decodeTextBodyWithCharset(textData, charset)
+		mailObj.TextBody.String = decoded
 		mailObj.TextBody.Valid = true
 	case strings.HasPrefix(mediaType, "text/html"):
 		htmlData, _ := io.ReadAll(entity.Body)
-		mailObj.HTMLBody.String = string(htmlData)
+		charset := strings.ToLower(strings.Trim(params["charset"], "\"' \t"))
+		decoded := decodeTextBodyWithCharset(htmlData, charset)
+		mailObj.HTMLBody.String = decoded
 		mailObj.HTMLBody.Valid = true
 	}
 }
@@ -303,7 +310,7 @@ func extractAddrHeader(h *message.Header, key string) string {
 	parts := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
 		if addr.Name != "" {
-			parts = append(parts, fmt.Sprintf("%s <%s>", addr.Name, addr.Address))
+			parts = append(parts, fmt.Sprintf("%s <%s>", decodeRFC2047(addr.Name), addr.Address))
 		} else {
 			parts = append(parts, addr.Address)
 		}
@@ -313,9 +320,15 @@ func extractAddrHeader(h *message.Header, key string) string {
 
 // decodeRFC2047 解码 RFC 2047 编码的头部字段值
 func decodeRFC2047(raw string) string {
-	dec := new(mime.WordDecoder)
+	if raw == "" {
+		return raw
+	}
+	dec := &mime.WordDecoder{
+		CharsetReader: charsetReader,
+	}
 	decoded, err := dec.DecodeHeader(raw)
 	if err != nil {
+		log.Printf("[WARN] decodeRFC2047 failed: %v, raw: %s", err, truncateStringPOP3(raw, 80))
 		return raw
 	}
 	return decoded
@@ -323,12 +336,82 @@ func decodeRFC2047(raw string) string {
 
 // decodeRFC2047Filename 解码 RFC 2047 编码的文件名
 func decodeRFC2047Filename(raw string) string {
-	dec := new(mime.WordDecoder)
+	if raw == "" {
+		return raw
+	}
+	dec := &mime.WordDecoder{
+		CharsetReader: charsetReader,
+	}
 	decoded, err := dec.DecodeHeader(raw)
 	if err != nil {
 		return raw
 	}
 	return decoded
+}
+
+// charsetReader 为 mime.WordDecoder 提供字符集解码支持
+func charsetReader(charset string, input io.Reader) (io.Reader, error) {
+	switch strings.ToLower(charset) {
+	case "gbk", "gb2312", "gb18030":
+		return transform.NewReader(input, simplifiedchinese.GBK.NewDecoder()), nil
+	case "utf-8", "utf8":
+		return input, nil
+	case "iso-8859-1", "latin-1", "latin1":
+		return transform.NewReader(input, unicode.UTF8.NewDecoder()), nil
+	default:
+		return input, nil
+	}
+}
+
+// truncateStringPOP3 截断字符串用于日志输出
+func truncateStringPOP3(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// decodeTextBodyWithCharset 根据 MIME 声明的 charset 解码邮件正文
+func decodeTextBodyWithCharset(data []byte, charset string) string {
+	if len(data) == 0 {
+		return ""
+	}
+	// 规范化：去除引号和空白
+	charset = strings.ToLower(strings.Trim(charset, "\"' \t"))
+	switch {
+	case charset == "", charset == "utf-8", charset == "utf8", charset == "us-ascii":
+		return string(data)
+	case charset == "gb18030", charset == "gbk", charset == "gb2312":
+		if decoded, err := simplifiedchinese.GBK.NewDecoder().String(string(data)); err == nil {
+			return decoded
+		}
+		log.Printf("[POP3] GBK/GB18030 解码失败，回退到原始数据")
+		return string(data)
+	case charset == "iso-8859-1", charset == "latin-1", charset == "latin1":
+		if decoded, err := unicode.UTF8.NewDecoder().String(string(data)); err == nil {
+			return decoded
+		}
+		return string(data)
+	default:
+		str := string(data)
+		if isUTF8(str) {
+			return str
+		}
+		if decoded, err := simplifiedchinese.GBK.NewDecoder().String(str); err == nil {
+			return decoded
+		}
+		return str
+	}
+}
+
+// isUTF8 简单检查字符串是否为有效 UTF-8
+func isUTF8(s string) bool {
+	for _, r := range s {
+		if r == '\ufffd' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseDate 解析邮件日期字符串（兼容多种 RFC5322 格式）

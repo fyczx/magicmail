@@ -17,6 +17,9 @@ import (
 	"magicmail/config"
 	"magicmail/models"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 	"gorm.io/gorm"
 
 	"github.com/emersion/go-imap/v2"
@@ -345,6 +348,7 @@ func (f *Fetcher) fetchBody(client *IMAPClient, uid imap.UID, mailID uint) (*Bod
 	entity, err := message.Read(bytes.NewReader(bodyBytes))
 	if err != nil {
 		// 解析失败则作为纯文本处理
+		log.Printf("⚠️  message.Read 解析失败 (UID=%d): %v，回退到原始数据", uid, err)
 		result.TextBody = decodeTextContent(bodyBytes)
 		return result, nil
 	}
@@ -532,13 +536,23 @@ func (f *Fetcher) parseEntity(entity *message.Entity, result *BodyResult, mailID
 	}
 
 	// 处理文本内容
+	charset := strings.ToLower(strings.Trim(params["charset"], "\"' \t"))
+	log.Printf("🔍 [CHARSET-DEBUG] mediaType=%s, raw_charset=%q, trimmed_charset=%q", mediaType, params["charset"], charset)
 	switch {
 	case strings.HasPrefix(mediaType, "text/plain"):
 		textData, _ := io.ReadAll(entity.Body)
-		result.TextBody = decodeTextContent(textData)
+		log.Printf("🔍 [CHARSET-DEBUG] text/plain: data_len=%d, first_40bytes_hex=%x, isUTF8=%v, will_decode_with=%q",
+			len(textData), textData[:min(40, len(textData))], isUTF8(string(textData)), charset)
+		result.TextBody = decodeTextContentWithCharset(textData, charset)
+		log.Printf("🔍 [CHARSET-DEBUG] textBody after decode: len=%d, first_80chars=%q",
+			len(result.TextBody), truncateString(result.TextBody, 80))
 	case strings.HasPrefix(mediaType, "text/html"):
 		htmlData, _ := io.ReadAll(entity.Body)
-		result.HTMLBody = decodeTextContent(htmlData)
+		log.Printf("🔍 [CHARSET-DEBUG] text/html: data_len=%d, first_40bytes_hex=%x, isUTF8=%v, will_decode_with=%q",
+			len(htmlData), htmlData[:min(40, len(htmlData))], isUTF8(string(htmlData)), charset)
+		result.HTMLBody = decodeTextContentWithCharset(htmlData, charset)
+		log.Printf("🔍 [CHARSET-DEBUG] htmlBody after decode: len=%d, first_80chars=%q",
+			len(result.HTMLBody), truncateString(result.HTMLBody, 80))
 	}
 }
 
@@ -582,7 +596,7 @@ func extractIMAPAddressList(addrs []imap.Address) string {
 	parts := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
 		if addr.Name != "" {
-			parts = append(parts, fmt.Sprintf("%s <%s>", addr.Name, addr.Addr()))
+			parts = append(parts, fmt.Sprintf("%s <%s>", decodeHeader(addr.Name), addr.Addr()))
 		} else {
 			parts = append(parts, addr.Addr())
 		}
@@ -592,9 +606,15 @@ func extractIMAPAddressList(addrs []imap.Address) string {
 
 // decodeHeader 解码 RFC 2047 编码的头部字段
 func decodeHeader(raw string) string {
-	dec := new(mime.WordDecoder)
+	if raw == "" {
+		return raw
+	}
+	dec := &mime.WordDecoder{
+		CharsetReader: charsetReader,
+	}
 	decoded, err := dec.DecodeHeader(raw)
 	if err != nil {
+		log.Printf("[WARN] decodeHeader failed: %v, raw: %s", err, truncateString(raw, 80))
 		return raw
 	}
 	return decoded
@@ -602,7 +622,12 @@ func decodeHeader(raw string) string {
 
 // decodeRFC2047Filename 解码 RFC 2047 编码的文件名
 func decodeRFC2047Filename(raw string) string {
-	dec := new(mime.WordDecoder)
+	if raw == "" {
+		return raw
+	}
+	dec := &mime.WordDecoder{
+		CharsetReader: charsetReader,
+	}
 	decoded, err := dec.DecodeHeader(raw)
 	if err != nil {
 		return raw
@@ -610,26 +635,63 @@ func decodeRFC2047Filename(raw string) string {
 	return decoded
 }
 
-// decodeTextContent 自动检测字符集并解码文本内容
-func decodeTextContent(data []byte) string {
-	str := string(data)
+// charsetReader 为 mime.WordDecoder 提供字符集解码支持（支持 GBK、GB2312、GB18030 等）
+func charsetReader(charset string, input io.Reader) (io.Reader, error) {
+	switch strings.ToLower(charset) {
+	case "gbk", "gb2312", "gb18030":
+		return transform.NewReader(input, simplifiedchinese.GBK.NewDecoder()), nil
+	case "utf-8", "utf8":
+		return input, nil
+	case "iso-8859-1", "latin-1", "latin1":
+		return transform.NewReader(input, unicode.UTF8.NewDecoder()), nil
+	default:
+		return input, nil
+	}
+}
 
-	// 尝试 UTF-8
-	if isUTF8(str) {
+// decodeTextContentWithCharset 根据 MIME 声明的 charset 解码文本内容
+func decodeTextContentWithCharset(data []byte, charset string) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	// 规范化：去除可能的引号和空白
+	charset = strings.ToLower(strings.Trim(charset, "\"' \t"))
+
+	// 根据 Content-Type 中声明的字符集选择解码方式
+	switch {
+	case charset == "", charset == "utf-8", charset == "utf8", charset == "us-ascii":
+		// UTF-8 或未声明，直接返回
+		return string(data)
+	case charset == "gb18030", charset == "gbk", charset == "gb2312", charset == "gb2312-80":
+		if decoded, err := simplifiedchinese.GBK.NewDecoder().String(string(data)); err == nil {
+			return decoded
+		}
+		log.Printf("[WARN] GBK/GB18030 解码失败（%d 字节），回退到原始数据", len(data))
+		return string(data)
+	case charset == "iso-8859-1", charset == "latin-1", charset == "latin1":
+		if decoded, err := unicode.UTF8.NewDecoder().String(string(data)); err == nil {
+			return decoded
+		}
+		return string(data)
+	default:
+		// 未知字符集：先尝试 UTF-8，再尝试 GBK
+		str := string(data)
+		if isUTF8(str) {
+			return str
+		}
+		if decoded, err := simplifiedchinese.GBK.NewDecoder().String(str); err == nil {
+			log.Printf("[INFO] 未知charset=%q 尝试GBK解码成功", charset)
+			return decoded
+		}
+		log.Printf("[WARN] 未知charset=%q 且非UTF-8/GBK，返回原始数据 (%d字节)", charset, len(data))
 		return str
 	}
+}
 
-	// 尝试 GBK/GB18030
-	if decoded, err := decodeCharset(data, "gbk"); err == nil {
-		return decoded
-	}
-
-	// 尝试 ISO-8859-1
-	if decoded, err := decodeCharset(data, "iso-8859-1"); err == nil {
-		return decoded
-	}
-
-	return str
+// decodeTextContent 自动检测字符集并解码文本内容（保留用于 MIME 解析失败时的回退）
+func decodeTextContent(data []byte) string {
+	return decodeTextContentWithCharset(data, "")
 }
 
 // isUTF8 简单检查字符串是否为有效 UTF-8
@@ -642,9 +704,32 @@ func isUTF8(s string) bool {
 	return true
 }
 
-// decodeCharset 简单字符集解码（需要 golang.org/x/text 支持）
+// decodeCharset 使用 golang.org/x/text 进行字符集解码
 func decodeCharset(data []byte, charset string) (string, error) {
-	return "", fmt.Errorf("charset '%s' not supported without golang.org/x/text", charset)
+	switch strings.ToLower(charset) {
+	case "gbk", "gb2312", "gb18030":
+		result, err := simplifiedchinese.GBK.NewDecoder().String(string(data))
+		if err != nil {
+			return "", fmt.Errorf("gbk decode error: %w", err)
+		}
+		return result, nil
+	case "iso-8859-1", "latin-1":
+		result, err := unicode.UTF8.NewDecoder().String(string(data))
+		if err != nil {
+			return "", fmt.Errorf("iso-8859-1 decode error: %w", err)
+		}
+		return result, nil
+	default:
+		return "", fmt.Errorf("unsupported charset: %s", charset)
+	}
+}
+
+// truncateString 截断字符串用于日志输出
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // shouldSync 根据 SyncMode 判断是否需要同步该邮件

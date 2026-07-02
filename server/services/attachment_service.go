@@ -19,6 +19,9 @@ import (
 	"magicmail/config"
 	"magicmail/models"
 
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 	"gorm.io/gorm"
 
 	"github.com/emersion/go-imap/v2"
@@ -387,7 +390,23 @@ func formatAttachmentSize(size int64) string {
 
 // decodeRFC2047Filename 解码 RFC 2047 编码的文件名
 func decodeRFC2047Filename(raw string) string {
-	dec := new(mime.WordDecoder)
+	if raw == "" {
+		return raw
+	}
+	dec := &mime.WordDecoder{
+		CharsetReader: func(charset string, input io.Reader) (io.Reader, error) {
+			switch strings.ToLower(charset) {
+			case "gbk", "gb2312", "gb18030":
+				return transform.NewReader(input, simplifiedchinese.GBK.NewDecoder()), nil
+			case "utf-8", "utf8":
+				return input, nil
+			case "iso-8859-1", "latin-1", "latin1":
+				return transform.NewReader(input, unicode.UTF8.NewDecoder()), nil
+			default:
+				return input, nil
+			}
+		},
+	}
 	decoded, err := dec.DecodeHeader(raw)
 	if err != nil {
 		return raw
