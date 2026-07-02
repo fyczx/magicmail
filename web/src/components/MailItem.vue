@@ -198,17 +198,20 @@ const relativeTime = computed(() => {
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   border-left: 3px solid transparent;
+  background: var(--bg-secondary, #ffffff);
   height: 72px;
 }
 .mail-item.selectable { cursor: default; }
 .mail-item:hover {
-  background: var(--bg-hover);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.03));
   border-left-color: var(--primary-300);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
-.mail-item.unread { background: var(--mail-unread-bg); }
+.mail-item.unread {
+  background: var(--mail-unread-bg, rgba(79, 110, 247, 0.05));
+}
 .mail-item.selected {
-  background: var(--mail-selected-bg);
-  border-left-color: var(--primary-500);
+  background: var(--mail-selected-bg, rgba(79, 110, 247, 0.1));
 }
 
 /* ---- 选择框 ---- */
