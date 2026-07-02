@@ -1,7 +1,7 @@
 # ============================================================================
 # Magicmail CI/CD - 多架构构建 & 发布到 GitHub Release
 # 触发条件：推送 v* 开头的 tag（如 v1.0.0）
-# 构建产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64
+# 构建产物：linux amd64/arm/arm64、darwin amd64/arm64、windows amd64 + FPK 包
 # ============================================================================
 
 name: Build & Release
@@ -128,11 +128,63 @@ jobs:
           retention-days: 1
 
   # ==========================================================================
-  # Job 3: 创建 GitHub Release，附带所有平台产物
+  # Job 3: 构建 FPK 包（飞牛 fnOS 应用包）
+  # ==========================================================================
+  build-fpk:
+    name: Build FPK Package
+    needs: [build-frontend, build-binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # 下载 linux/amd64 构建产物
+      - uses: actions/download-artifact@v5
+        with:
+          name: magicmail-linux-amd64
+          path: bin/
+
+      - name: Prepare FPK directory
+        run: |
+          mkdir -p fnapp/app/server
+          cp bin/magicmail fnapp/app/server/magicmail
+          chmod +x fnapp/app/server/magicmail
+
+      - name: Install fnpack
+        run: |
+          # 安装 fnpack CLI 工具（飞牛应用打包工具）
+          wget -q https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64 -O /usr/local/bin/fnpack
+          chmod +x /usr/local/bin/fnpack
+          fnpack --help
+
+      - name: Build FPK package
+        working-directory: fnapp
+        run: fnpack build
+
+      # 查找并上传 FPK 产物
+      - name: Find and upload FPK artifact
+        run: |
+          FPK_FILE=$(ls *.fpk 2>/dev/null | head -1)
+          if [ -n "$FPK_FILE" ]; then
+            echo "FPK_FILE=$FPK_FILE" >> "$GITHUB_ENV"
+            echo "Found FPK: $FPK_FILE ($(du -h $FPK_FILE | cut -f1))"
+          else
+            echo "No .fpk file found in fnapp/"
+            exit 1
+          fi
+        working-directory: fnapp
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: magicmail-fpk
+          path: fnapp/*.fpk
+          retention-days: 1
+
+  # ==========================================================================
+  # Job 4: 创建 GitHub Release，附带所有平台产物
   # ==========================================================================
   release:
     name: Create GitHub Release
-    needs: build-binary
+    needs: [build-binary, build-fpk]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -143,6 +195,12 @@ jobs:
           path: all-artifacts
           pattern: magicmail-*
           merge-multiple: false
+
+      # 下载 FPK 产物
+      - uses: actions/download-artifact@v5
+        with:
+          name: magicmail-fpk
+          path: all-artifacts/fpk
 
       # 查看产物结构（调试用）
       - name: List artifacts
@@ -178,6 +236,12 @@ jobs:
             echo "| macOS | Apple Silicon | \`magicmail-macos-arm64\` |"
             echo "| Windows | x86_64 | \`magicmail.exe\` |"
             echo ""
+            echo "### 飞牛 fnOS 应用包"
+            echo ""
+            echo "| 平台 | 文件 | 说明 |"
+            echo "|------|------|------|"
+            echo "| 飞牛 fnOS (Linux amd64) | \`magicmail.fpk\` | 一键安装到飞牛系统 |"
+            echo ""
             echo "> 解压后直接运行，无需额外依赖。默认监听 \`http://localhost:8080\`"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -197,3 +261,4 @@ jobs:
             all-artifacts/magicmail-darwin-amd64/magicmail-macos-x86_64
             all-artifacts-magicmail-darwin-arm64/magicmail-macos-arm64
             all-artifacts/magicmail-windows-amd64/magicmail.exe
+            all-artifacts/fpk/*.fpk
