@@ -7,14 +7,17 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"time"
 
 	"magicmail/config"
 	"magicmail/models"
+	"magicmail/oauth2"
 	pop3pkg "magicmail/pop3"
 	"magicmail/proxy"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/emersion/go-sasl"
 )
 
 // MailClient 统一邮件客户端接口（IMAP / POP3 共用）
@@ -103,14 +106,112 @@ func NewMailClient(account *models.MailAccount, cfg *config.Config) (MailClient,
 	}
 }
 
-// Authenticate 使用 LOGIN 命令认证，并发送客户端ID信息（解决163邮箱 Unsafe Login问题）
+// Authenticate 根据账号 AuthType 自动选择认证方式：
+//   - password（默认）：传统 LOGIN 命令
+//   - oauth2_*：XOAUTH2 SASL 认证（自动刷新 Token）
 func (c *IMAPClient) Authenticate() error {
+	// OAuth2 认证路径
+	if oauth2.IsOAuth2Account(c.Account.AuthType) {
+		return c.authenticateOAuth2()
+	}
+	// 传统密码认证路径
+	return c.authenticateLogin()
+}
+
+// authenticateOAuth2 使用 XOAUTH2 SASL 进行 OAuth2 认证
+func (c *IMAPClient) authenticateOAuth2() error {
+	providerName := oauth2.ParseAuthType(c.Account.AuthType)
+	if providerName == "" {
+		return fmt.Errorf("无效的 OAuth2 认证类型: %s", c.Account.AuthType)
+	}
+
+	provider, clientID, err := oauth2.ResolveProviderAndClientID(providerName, c.Account.CustomClientId)
+	if err != nil {
+		return fmt.Errorf("OAuth2 Provider 解析失败: %w", err)
+	}
+
+	accessToken := c.resolveAccessToken(provider, clientID)
+	if accessToken == "" {
+		return fmt.Errorf("无法获取有效的 AccessToken（可能需要重新授权）")
+	}
+
+	// 发送 ID 命令（同 LOGIN 流程）
+	c.sendClientID()
+
+	// 使用 OAUTHBEARER SASL 机制进行 OAuth2 认证（Microsoft IMAP 支持）
+	_ = provider.BuildXOAUTH2String(c.Account.Email, accessToken) // 预校验（保留供调试用）
+	saslClient := sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
+		Username: c.Account.Email,
+		Token:    accessToken,
+	})
+
+	if err := c.Client.Authenticate(saslClient); err != nil {
+		return fmt.Errorf("IMAP XOAUTH2 认证失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
+	}
+	log.Printf("✅ IMAP XOAUTH2 认证成功: %s [Provider=%s]", c.Account.Email, providerName)
+	return nil
+}
+
+// resolveAccessToken 获取有效的 Access Token，过期则自动刷新
+func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID string) string {
+	// 检查是否需要刷新（提前 2 分钟刷新）
+	if c.Account.TokenExpiresAt != nil {
+		expiresAt := c.Account.TokenExpiresAt.Add(-2 * time.Minute)
+		if time.Now().Before(expiresAt) && c.Account.Password != "" {
+			// Password 字段复用存储内存中的 Access Token（运行时有效）
+			// 注：Password 在 AfterFind 后是明文，但 OAuth2 模式下这里存的是 AT
+			_ = clientID // 避免未使用警告，实际使用场景中 Password 即为 AT
+			return c.Account.Password
+		}
+	}
+
+	// Token 过期或不存在，尝试使用 RefreshToken 刷新
+	if c.Account.RefreshToken == "" {
+		log.Printf("[WARN] OAuth2 账号 %s 无 RefreshToken，需要用户重新授权", c.Account.Email)
+		return ""
+	}
+
+	log.Printf("🔄 正在刷新 AccessToken (%s@%s)...", c.Account.Email, provider.Name())
+	tokenResp, err := provider.RefreshAccessToken(nil, clientID, c.Account.RefreshToken)
+	if err != nil {
+		log.Printf("❌ RefreshToken 刷新失败 (%s): %v", c.Account.Email, err)
+		return ""
+	}
+
+	// 更新本地缓存（注意：此处仅更新运行时值，数据库更新需由上层调用方处理）
+	c.Account.Password = tokenResp.AccessToken
+	now := time.Now()
+	expiresAt := now.Add(tokenResp.ExpiresIn)
+	c.Account.TokenExpiresAt = &expiresAt
+
+	// 如果微软返回了新的 RefreshToken，记录日志提示保存
+	if tokenResp.RefreshToken != "" {
+		log.Printf("[INFO] Provider %s 返回了新 RefreshToken for %s，建议保存到数据库", provider.Name(), c.Account.Email)
+		c.Account.RefreshToken = tokenResp.RefreshToken
+	}
+
+	log.Printf("✅ AccessToken 刷新成功: %s (有效期 %v)", c.Account.Email, tokenResp.ExpiresIn)
+	return tokenResp.AccessToken
+}
+
+// authenticateLogin 使用传统 LOGIN 命令进行密码认证
+func (c *IMAPClient) authenticateLogin() error {
 	if c.Account.Password == "" {
 		return fmt.Errorf("密码为空，无法认证")
 	}
 
-	// 发送 ID 命令声明客户端身份（RFC 2971）
-	// 163/126等网易邮箱要求客户端必须发送ID命令，否则会返回 "SELECT Unsafe Login" 错误
+	c.sendClientID()
+
+	if err := c.Client.Login(c.Account.Username, c.Account.Password).Wait(); err != nil {
+		return fmt.Errorf("IMAP 登录失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
+	}
+	log.Printf("✅ IMAP 认证成功: %s", c.Account.Email)
+	return nil
+}
+
+// sendClientID 发送 IMAP ID 命令声明客户端身份（RFC 2971）
+// 163/126等网易邮箱要求客户端必须发送ID命令，否则会返回 "SELECT Unsafe Login" 错误
+func (c *IMAPClient) sendClientID() {
 	idData := &imap.IDData{
 		Name:    "MagicMail",
 		Version: "1.0.0",
@@ -120,12 +221,6 @@ func (c *IMAPClient) Authenticate() error {
 		// ID 命令失败不阻塞登录（部分服务器可能不支持），仅记录日志
 		log.Printf("⚠️  发送 IMAP ID 命令失败 (可能服务器不支持): %v", err)
 	}
-
-	if err := c.Client.Login(c.Account.Username, c.Account.Password).Wait(); err != nil {
-		return fmt.Errorf("IMAP 登录失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
-	}
-	log.Printf("✅ IMAP 认证成功: %s", c.Account.Email)
-	return nil
 }
 
 // SelectINBOX 选择收件箱并返回状态信息

@@ -15,6 +15,7 @@ type Config struct {
 	Database DatabaseConfig
 	IMAP     IMAPConfig
 	Security SecurityConfig
+	OAuth2   OAuth2Config
 }
 
 // ServerConfig HTTP 服务配置
@@ -86,6 +87,12 @@ func (c *IMAPConfig) IsAutoCacheEnabled() bool {
 type SecurityConfig struct {
 	EncryptionKey string // 密码加密密钥（从环境变量读取）
 	JWTSecret      string // JWT 密钥（预留）
+}
+
+// OAuth2Config OAuth2 全局配置（混合模式 Client ID 管理）
+type OAuth2Config struct {
+	// Microsoft OAuth2 配置
+	MicrosoftClientID string // Microsoft 默认 Client ID（可被环境变量或用户自定义覆盖）
 }
 
 // Load 加载配置，优先从环境变量读取，使用默认值兜底
@@ -181,6 +188,9 @@ func Load() *Config {
 			//   - 可通过环境变量 MAGICMAIL_JWT_SECRET / MAGICMAIL_ENCRYPT_KEY 显式指定（优先级更高）
 			EncryptionKey: "",
 			JWTSecret:      "",
+		},
+		OAuth2: OAuth2Config{
+			MicrosoftClientID: getEnv("MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID", ""),
 		},
 	}
 }

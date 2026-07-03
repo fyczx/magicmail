@@ -69,6 +69,7 @@ export default defineConfig({
             { text: '邮件收发', link: '/guide/mails' },
             { text: 'Webhook 通知', link: '/guide/webhooks' },
             { text: 'PWA 客户端', link: '/guide/pwa' },
+            { text: 'Outlook OAuth2 配置', link: '/guide/oauth2-microsoft' },
           ],
         },
         {

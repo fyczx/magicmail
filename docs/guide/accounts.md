@@ -24,6 +24,12 @@
 | QQ 邮箱 | imap.qq.com | 993 | SSL/TLS |
 | 163 邮箱 | imap.163.com | 993 | SSL/TLS |
 | Outlook | outlook.office365.com | 993 | SSL/TLS |
+
+::: tip Outlook / Hotmail 用户注意
+微软已禁用传统密码方式的 IMAP 认证，推荐使用 **OAuth2 设备码流** 授权。
+详细配置步骤请查看 [Outlook OAuth2 配置指南](/guide/oauth2-microsoft)。
+:::
+
 | Gmail | imap.gmail.com | 993 | SSL/TLS |
 | Yahoo | imap.mail.yahoo.com | 993 | SSL/TLS |
 

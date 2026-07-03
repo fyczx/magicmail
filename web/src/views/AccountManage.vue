@@ -101,9 +101,16 @@
       description="添加你的第一个 IMAP 邮箱，开始代收邮件"
     />
 
-    <!-- 新增/编辑弹窗 -->
+    <!-- 新增向导弹窗 -->
+    <AddAccountWizard
+      v-if="showForm && !editingAccount"
+      @close="closeForm"
+      @saved="onSaved"
+    />
+
+    <!-- 编辑弹窗（复用原有表单） -->
     <AccountForm
-      v-if="showForm"
+      v-if="showForm && editingAccount"
       :account="editingAccount"
       @close="closeForm"
       @saved="onSaved"
@@ -119,6 +126,7 @@ import { triggerSync } from '@/api/account'
 import { useToast } from '@/composables/useToast'
 import EmptyState from '../components/EmptyState.vue'
 import AccountForm from '../components/AccountForm.vue'
+import AddAccountWizard from '../components/AddAccountWizard.vue'
 
 const toast = useToast()
 

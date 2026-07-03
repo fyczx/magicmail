@@ -43,3 +43,25 @@ export function toggleAccountStatus(id, status) {
   return request.put(`/accounts/${id}/status`, { status })
 }
 
+// ====== OAuth2 设备码授权 API ======
+
+/**
+ * 请求设备码（开始 OAuth2 授权流程）
+ * @param {string} provider - 服务商名称，如 'microsoft'
+ * @param {{ email: string, custom_client_id?: string }} params
+ * @returns {Promise<{ device_code, user_code, verification_uri, expires_in, interval }>}
+ */
+export function requestDeviceCode(provider, params = {}) {
+  return request.post(`/oauth/${provider}/device-code`, params)
+}
+
+/**
+ * 轮询 Token 授权状态
+ * @param {string} provider - 服务商名称
+ * @param {{ device_code: string, custom_client_id?: string }} params
+ * @returns {Promise<{ success: boolean, pending: boolean, data?: { provider, refresh_token, expires_in, token_expires_at } }>}
+ */
+export function pollToken(provider, params) {
+  return request.post(`/oauth/${provider}/poll`, params)
+}
+

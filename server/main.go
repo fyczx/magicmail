@@ -13,8 +13,9 @@ import (
 	"magicmail/crypto"
 	"magicmail/database"
 	"magicmail/imap"
-	"magicmail/sse"
+	"magicmail/oauth2"
 	"magicmail/routes"
+	"magicmail/sse"
 
 	"github.com/emersion/go-message"
 	"github.com/gofiber/fiber/v2"
@@ -65,6 +66,9 @@ func main() {
 	if err := crypto.Init(cfg.Security.EncryptionKey); err != nil {
 		log.Fatalf("❌ 加密模块初始化失败: %v", err)
 	}
+
+	// 初始化 OAuth2 全局注册中心（注册 Microsoft 等内置 Provider）
+	oauth2.InitGlobalRegistry()
 
 	// 创建 Fiber 实例
 	// 关键配置：SSE 长连接需要较长的空闲超时和禁用写超时

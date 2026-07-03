@@ -58,6 +58,7 @@ func Register(app *fiber.App, db *gorm.DB) {
 
 	// --- 初始化 Handler 层 ---
 	accountHandler := handlers.NewAccountHandler(accountService, healthCheckService)
+	oauthHandler := handlers.NewOAuth2Handler()
 	mailHandler := handlers.NewMailHandler(mailService)
 	attachmentHandler := handlers.NewAttachmentHandler(attachmentService)
 	webhookHandler := handlers.NewWebhookHandler(webhookService)
@@ -81,6 +82,13 @@ func Register(app *fiber.App, db *gorm.DB) {
 	// ============================================================
 	protected := api.Group("")
 	protected.Use(authMiddleware)
+	// ============================================================
+	//  OAuth2 授权 API（设备码流）
+	// ============================================================
+	oauthGroup := protected.Group("/oauth")
+	oauthGroup.Post("/:provider/device-code", oauthHandler.DeviceCode)
+	oauthGroup.Post("/:provider/poll", oauthHandler.PollToken)
+
 	// ============================================================
 	//  邮箱管理 API
 	// ============================================================
