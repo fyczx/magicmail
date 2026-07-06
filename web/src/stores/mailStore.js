@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026  magiccode (魔法代码)
 
-import { defineStore } from 'pinia'
+import { defineStore, acceptHMRUpdate } from 'pinia'
 import { ref, computed } from 'vue'
-import { getMails, getMailById, markAsRead as apiMarkRead, deleteMail as apiDeleteMail, batchDeleteMails as apiBatchDelete, batchMarkAsRead as apiBatchMarkRead, getMailStats } from '@/api/mail'
+import { getMails, getMailById, markAsRead as apiMarkRead, deleteMail as apiDeleteMail, batchDeleteMails as apiBatchDelete, batchMarkAsRead as apiBatchMarkRead, markAllAsRead as apiMarkAllAsRead, getMailStats } from '@/api/mail'
 
 export const useMailStore = defineStore('mail', () => {
   // --- 状态 ---
@@ -220,10 +220,33 @@ export const useMailStore = defineStore('mail', () => {
     }
   }
 
+  // --- 一键标记所有邮件为已读 ---
+  async function markAllAsRead() {
+    // 使用当前筛选条件，仅影响当前视图中的邮件
+    const params = { ...filters.value }
+    Object.keys(params).forEach(key => {
+      if (params[key] === '' || params[key] === null || params[key] === undefined) {
+        delete params[key]
+      }
+    })
+
+    const res = await apiMarkAllAsRead(params)
+
+    // 乐观更新：当前页所有邮件标记为已读
+    mails.value.forEach(mail => { mail.is_read = true })
+
+    return res
+  }
+
   return {
     mails, currentMail, total, currentPage, pageSize,
     filters, loading, error, hasMore, stats,
-    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails, batchMarkAsRead,
+    fetchMails, fetchMailDetail, markAsRead, deleteMail, batchDeleteMails, batchMarkAsRead, markAllAsRead,
     setFilter, resetFilters, fetchStats,
   }
 })
+
+// 支持 HMR 热更新（Pinia setup store 需手动启用，否则新增的 action 不会注入到已存在的 store 实例）
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useMailStore))
+}

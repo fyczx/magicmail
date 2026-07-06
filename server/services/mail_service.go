@@ -245,6 +245,31 @@ func (s *MailService) BatchMarkAsRead(ids []uint, isRead bool) *BatchMarkAsReadR
 	return result
 }
 
+// MarkAllAsRead 将符合筛选条件的所有邮件标记为已读
+func (s *MailService) MarkAllAsRead(filter models.MailListFilter) (int64, error) {
+	query := s.db.Model(&models.Mail{})
+
+	if filter.AccountID > 0 {
+		query = query.Where("account_id = ?", filter.AccountID)
+	}
+	if filter.Folder != "" {
+		query = query.Where("folder = ?", filter.Folder)
+	}
+	if filter.IsRead != nil {
+		query = query.Where("is_read = ?", *filter.IsRead)
+	}
+	if filter.HasAttachment != nil {
+		query = query.Where("has_attachment = ?", *filter.HasAttachment)
+	}
+	if filter.Keyword != "" {
+		keyword := "%" + filter.Keyword + "%"
+		query = query.Where("`from` LIKE ? OR subject LIKE ?", keyword, keyword)
+	}
+
+	result := query.Update("is_read", true)
+	return result.RowsAffected, result.Error
+}
+
 // MarkAsStarred 标记邮件星标
 func (s *MailService) MarkAsStarred(id uint, starred bool) error {
 	return s.db.Model(&models.Mail{}).Where("id = ?", id).
