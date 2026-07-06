@@ -5,6 +5,27 @@
 
 ## 问题列表
 
+### IMAP/POP3 邮件缺失 Message-ID 时被反复重复入库
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-07-06
+- **问题描述**：当邮件没有真实的 `Message-ID` 头部时（如阿里云通知类邮件），同一封邮件在每次 IMAP/POP3 同步时都会被当作新邮件重复入库。数据库中可看到同一封邮件出现数十条记录（`subject`/`from`/`sent_at`/`message_uid` 完全一致，但 `id` 和 `created_at` 不同），并重复触发 `mail.received` webhook。
+- **根因分析**：
+  1. 旧版 fallback 逻辑在邮件缺失 `Message-ID` 时使用 `time.Now()` 生成伪唯一 ID：`<auto-{uid}-{timestamp}@proxy>`。由于时间戳每次同步都不同，生成的 `message_id` 每次都不一样，导致去重查询 `WHERE message_id = ? AND account_id = ?` 永远匹配不到已有记录；
+  2. 去重查询未包含 `folder` 字段，同一 `Message-ID` 在 inbox/sent 等不同文件夹中可能产生冲突；
+  3. 数据库层面 `message_id` 字段上的全局唯一索引过于宽泛，会阻止不同账号收到相同 `Message-ID` 的正常邮件。
+- **修复方案**：
+  1. **稳定 fallback Message-ID**：不再使用 `time.Now()`，改为基于 `account_id + folder + uid`（IMAP）或 `account_id + seq`（POP3）生成稳定标识，确保同一封邮件每次同步生成相同的 `message_id`；
+  2. **去重查询增加 folder**：`WHERE message_id = ? AND account_id = ? AND folder = ?`，避免不同文件夹间的误判；
+  3. **索引调整**：将 `message_id` 从 `uniqueIndex`（全局唯一）改为普通 `index`，新增 `message_uid` 索引提升查询性能；
+  4. **数据库迁移自动清理**：启动时自动执行 `cleanupDuplicateMails()`，删除历史重复记录（按 `account_id + folder + message_uid` 去重，保留最早入库的一条），将旧格式 `<auto-*@proxy>` 的 `message_id` 更新为新稳定格式，移除过宽的旧唯一索引，创建复合唯一索引 `idx_mails_account_folder_uid`。
+- **涉及文件**：
+  - `server/imap/fetcher.go` — IMAP fallback Message-ID 生成 + 去重查询
+  - `server/pop3/fetcher.go` — POP3 fallback Message-ID 生成 + 去重查询 + Folder 字段
+  - `server/models/mail.go` — 索引调整
+  - `server/database/database.go` — 迁移后清理函数 `cleanupDuplicateMails()`
+- **影响范围**：IMAP 和 POP3 协议均受影响；使用阿里云、部分企业邮箱等不发 `Message-ID` 的邮件时尤为明显。修复后历史重复数据在下次启动时自动清理，后续同步不再产生重复。
+
 ### 企业微信邮件中文乱码 (GBK/GB18030 编码)
 
 - **状态**：✅ 已修复未发布
