@@ -150,14 +150,16 @@ func (f *Fetcher) parseMessage(client *IMAPClient, buf *imapclient.FetchMessageB
 
 	messageID := envelope.MessageID
 	if messageID == "" {
-		// 无 Message-ID 时用 UID+时间戳生成唯一标识
-		messageID = fmt.Sprintf("<auto-%d-%s@proxy>", buf.UID, time.Now().Format("20060102150405"))
+		// 无 Message-ID 时使用稳定键（account_id + folder + uid），
+		// 避免使用 time.Now() 导致每次同步生成不同 ID 从而去重失败
+		messageID = fmt.Sprintf("<auto-account-%d-folder-%s-uid-%d@magicmail>", client.Account.ID, f.folder, buf.UID)
 	}
 
-	// 去重：根据 Message-ID + AccountID 判断是否已存在
+	// 去重：根据 Message-ID + AccountID + Folder 判断是否已存在
+	// 加入 folder 避免同一 Message-ID 在不同文件夹（inbox/sent）中冲突
 	var existing int64
 	f.db.Model(&models.Mail{}).
-		Where("message_id = ? AND account_id = ?", messageID, client.Account.ID).
+		Where("message_id = ? AND account_id = ? AND folder = ?", messageID, client.Account.ID, f.folder).
 		Count(&existing)
 	if existing > 0 {
 		return nil, nil, nil // 已存在，跳过

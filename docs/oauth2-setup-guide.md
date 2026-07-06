@@ -54,20 +54,39 @@ MagicMail 支持 **设备码流 (Device Code Flow)** OAuth2 授权方式，目�
      > ⚠️ 必须选择包含「个人 Microsoft 账号」的选项，否则无法授权 @outlook.com / @hotmail.com 个人邮箱
 4. 点击 **注册**
 
-### 步骤 3：配置权限
+### 步骤 3：配置 API 权限
+
+::: warning 必须使用 Office 365 Exchange Online 权限
+IMAP/SMTP XOAUTH2 认证**必须**使用 Office 365 Exchange Online 的权限，
+**不能**使用 Microsoft Graph 的 `Mail.Read` / `Mail.Send`。
+Graph Token 无法用于 IMAP XOAUTH2 认证，会导致 `NO AUTHENTICATE failed` 错误。
+:::
 
 1. 在左侧菜单选择 **API 权限** → **添加权限**
-2. 选择 **我的组织使用的 API** → **Microsoft Graph**（注意：不是 Microsoft Graph，而是 **Office 365 Exchange Online**）
-   - 实际上应该选 **API 我拥有的** → **Office 365 Exchange Online**
-3. 添加以下**委派权限**：
+2. 选择 **我的组织使用的 API** 标签页
+3. 搜索 **Office 365 Exchange Online** 并选择
+
+   > 💡 如果搜索不到，确保应用注册时选择了「任何组织目录中的账户和个人 Microsoft 账户」（common tenant）。
+
+4. 添加以下**委派权限 (Delegated permissions)**：
 
    | 权限名 | 类型 | 用途 |
-  --------|------|------|
-   | `IMAP.AccessAsUser.All` | 委托 | 读取/管理 IMAP 邮件 |
-   | `SMTP.Send` | 委托 | 发送邮件 |
-   | `offline_access` | 委托 | 获取 Refresh Token（长期有效） |
+   |--------|------|------|
+   | `IMAP.AccessAsUser.All` | 委托 | 通过 IMAP 协议访问用户邮箱 |
+   | `SMTP.Send` | 委托 | 通过 SMTP 协议发送邮件 |
 
-4. 点击 **添加权限**
+5. 点击 **添加权限**
+6. 再次点击 **添加权限** → **Microsoft API** → **Microsoft Graph** → 勾选 **`offline_access`**（获取 Refresh Token）
+
+::: tip Scope 说明
+代码中使用的授权范围（scope）为：
+- `https://outlook.office.com/IMAP.AccessAsUser.All`
+- `https://outlook.office.com/SMTP.Send`
+- `offline_access`
+
+注意：用户委托流程（设备码流）必须使用 `outlook.office.com` 而非 `outlook.office365.com`。
+后者仅用于客户端凭据流程（服务主体），详见 [微软官方文档](https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth)。
+:::
 
 ### 步骤 4：获取 Client ID
 
@@ -104,7 +123,7 @@ const microsoftDefaultClientID = "YOUR_ACTUAL_CLIENT_ID_HERE"
 
 ### 方式 C：用户自定义
 
-在前端添加邮箱时，OAuth2 授权区域提供「自定义 Client ID」选项（高级功能）。
+在前端添加邮箱时，OAuth2 授权区域下方提供「高级选项」折叠面板，用户可填写自定义 Client ID（留空则使用默认值或环境变量配置）。
 
 ---
 
@@ -118,34 +137,53 @@ const microsoftDefaultClientID = "YOUR_ACTUAL_CLIENT_ID_HERE"
 3. Step 2 显示：
    - 显示名称输入框
    - 邮箱地址输入框
-   - 「🚀 开始 OAuth2 授权」按钮
+   - 「开始 OAuth2 授权」按钮
+   - 「高级选项」折叠面板（可填写自定义 Client ID）
 4. 用户点击授权按钮后：
    - 展开授权面板
-   - 显示：请在浏览器打开 https://microsoft.com/devicelogin
+   - 显示可点击的超链接：https://microsoft.com/devicelogin（点击直接打开新标签页）
    - 显示大号验证码：ABCD-EFGH（可一键复制）
    - 15分钟倒计时进度条开始
    - 后台每5秒轮询一次
 5. 用户操作：
-   - 浏览器打开链接 → 输入验证码
+   - 点击链接打开新标签页 → 输入验证码
    - 登录微软账号 → 同意权限
 6. 后台检测到授权成功：
-   - 显示绿色 ✓ 授权成功！
-   - RefreshToken 加密存储到数据库
-7. 用户点击「完成 ✓」→ 账号创建完成
-8. 后续邮件同步自动使用 XOAUTH2 认证
+   - 显示绿色 ✓ OAuth2 授权成功！
+7. 用户点击「下一步」→ 进入 Step 3 高级设置
+   - 配置同步模式（仅未读/全部/最近N天）
+   - 配置代理（可选）
+8. 用户点击「完成」→ 账号创建完成
+9. 后续邮件同步自动使用 XOAUTH2 认证
 ```
 
 ---
 
 ## 四、故障排查
 
+### Q: 设备码请求失败 — "invalid_scope" (AADSTS70011)
+
+**原因:** Scope 不正确
+**解决:**
+- 确认使用的是 `https://outlook.office.com/IMAP.AccessAsUser.All`（用户委托流程），而非 `https://outlook.office365.com/`（客户端凭据流程）
+- 确认 Azure AD 应用已添加 **Office 365 Exchange Online** 的 `IMAP.AccessAsUser.All` 和 `SMTP.Send` 委派权限
+- 确认应用账户类型为「任何组织目录中的账户和个人 Microsoft 账户」（common tenant）
+
 ### Q: 设备码请求失败 — "invalid_client"
 
 **原因:** Client ID 无效或未正确配置
-**解决:** 
+**解决:**
 - 检查环境变量 `MAGICMAIL_OAUTH_MICROSOFT_CLIENT_ID`
 - 确认 Azure AD 应用已启用「个人 Microsoft 账号」支持
 - 确认应用未被禁用或删除
+
+### Q: IMAP 认证失败 — "NO AUTHENTICATE failed"
+
+**原因:** Access Token 的 scope 不支持 IMAP XOAUTH2
+**解决:**
+- 确认 Token 是通过 `outlook.office.com` scope 获取的，而非 Graph API 的 `Mail.Read`
+- 如果之前用旧 scope 授权过，需要**删除账号重新走 OAuth2 授权流程**，获取新 scope 的 token
+- 确认 Azure AD 应用已添加 Office 365 Exchange Online 的 IMAP 权限
 
 ### Q: 用户授权后被提示 "需要管理员同意"
 
@@ -229,10 +267,11 @@ func (p *GoogleProvider) EnvVarName() string { return "MAGICMAIL_OAUTH_GOOGLE_CL
 |------|------|
 | `server/oauth2/types.go` | 类型定义 |
 | `server/oauth2/provider.go` | 接口 + 注册中心 |
-| `server/oauth2/microsoft.go` | Microsoft 实现 |
+| `server/oauth2/microsoft.go` | Microsoft 实现（scope、端点、Token 刷新） |
 | `server/oauth2/xoauth2.go` | XOAUTH2 工具函数 |
 | `server/handlers/oauth_handler.go` | API Handler |
-| `server/imap/client.go` | IMAP XOAUTH2 认证集成 |
+| `server/imap/client.go` | IMAP XOAUTH2 认证集成（XOAUTH2Client） |
 | `web/src/components/WizardOAuth2Flow.vue` | 前端授权交互 UI |
+| `web/src/components/WizardStepConfig.vue` | 配置步骤（含自定义 Client ID 高级选项） |
 | `web/src/api/account.js` | 前端 OAuth2 API 函数 |
 | `web/src/data/providers.js` | 服务商预设数据 |

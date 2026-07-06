@@ -233,10 +233,11 @@ type AccountRequest struct {
 	Username       string `json:"username" validate:"required"`
 	Password       string `json:"password"` // 为空时不更新密码
 	// OAuth2 字段（OAuth2 认证时使用）
-	AuthType       string `json:"auth_type" validate:"omitempty,oneof=password oauth2_microsoft oauth2_google"` // 认证类型
-	OAuthProvider   string `json:"oauth_provider" validate:"omitempty,oneof=microsoft google"`                // OAuth2 服务商
-	RefreshToken   string `json:"refresh_token"`   // OAuth2 Refresh Token（授权完成后由后端设置）
-	CustomClientId string `json:"custom_client_id"` // 用户自定义 Client ID（可选）
+	AuthType        string     `json:"auth_type" validate:"omitempty,oneof=password oauth2_microsoft oauth2_google"` // 认证类型
+	OAuthProvider    string     `json:"oauth_provider" validate:"omitempty,oneof=microsoft google"`                // OAuth2 服务商
+	RefreshToken    string     `json:"refresh_token"`   // OAuth2 Refresh Token（授权完成后由后端设置）
+	CustomClientId  string     `json:"custom_client_id"` // 用户自定义 Client ID（可选）
+	TokenExpiresAt  *time.Time `json:"token_expires_at"` // Access Token 过期时间
 	ProxyEnabled   bool   `json:"proxy_enabled"`    // 是否启用HTTP代理
 	ProxyURL       string `json:"proxy_url,omitempty"` // HTTP代理地址
 	SyncMode       string `json:"sync_mode" validate:"omitempty,oneof=unread all recent"` // 同步模式

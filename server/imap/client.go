@@ -4,6 +4,7 @@
 package imap
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
-	"github.com/emersion/go-sasl"
 )
 
 // MailClient 统一邮件客户端接口（IMAP / POP3 共用）
@@ -138,18 +138,36 @@ func (c *IMAPClient) authenticateOAuth2() error {
 	// 发送 ID 命令（同 LOGIN 流程）
 	c.sendClientID()
 
-	// 使用 OAUTHBEARER SASL 机制进行 OAuth2 认证（Microsoft IMAP 支持）
-	_ = provider.BuildXOAUTH2String(c.Account.Email, accessToken) // 预校验（保留供调试用）
-	saslClient := sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
+	// 使用 XOAUTH2 SASL 机制进行 OAuth2 认证（Microsoft/Gmail IMAP 均支持 XOAUTH2）
+	saslClient := &XOAUTH2Client{
 		Username: c.Account.Email,
 		Token:    accessToken,
-	})
+	}
 
 	if err := c.Client.Authenticate(saslClient); err != nil {
 		return fmt.Errorf("IMAP XOAUTH2 认证失败 (%s@%s): %w", c.Account.Username, c.Account.Email, err)
 	}
 	log.Printf("✅ IMAP XOAUTH2 认证成功: %s [Provider=%s]", c.Account.Email, providerName)
 	return nil
+}
+
+// XOAUTH2Client 实现 sasl.Client 接口，使用 XOAUTH2 SASL 机制
+// 微软 Outlook IMAP (outlook.office365.com) 不支持 OAUTHBEARER，仅支持 XOAUTH2
+type XOAUTH2Client struct {
+	Username string
+	Token    string
+}
+
+// Start 返回 SASL 机制名称和初始响应
+func (c *XOAUTH2Client) Start() (string, []byte, error) {
+	// XOAUTH2 格式: "user={email}\x01auth=Bearer {token}\x01\x01"
+	resp := []byte("user=" + c.Username + "\x01auth=Bearer " + c.Token + "\x01\x01")
+	return "XOAUTH2", resp, nil
+}
+
+// Next 处理服务器挑战（XOAUTH2 成功时无挑战，失败时返回空响应中止）
+func (c *XOAUTH2Client) Next(challenge []byte) ([]byte, error) {
+	return []byte{}, nil
 }
 
 // resolveAccessToken 获取有效的 Access Token，过期则自动刷新
@@ -172,7 +190,7 @@ func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID
 	}
 
 	log.Printf("🔄 正在刷新 AccessToken (%s@%s)...", c.Account.Email, provider.Name())
-	tokenResp, err := provider.RefreshAccessToken(nil, clientID, c.Account.RefreshToken)
+	tokenResp, err := provider.RefreshAccessToken(context.Background(), clientID, c.Account.RefreshToken)
 	if err != nil {
 		log.Printf("❌ RefreshToken 刷新失败 (%s): %v", c.Account.Email, err)
 		return ""

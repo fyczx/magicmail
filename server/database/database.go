@@ -65,6 +65,13 @@ func Init(dsn string) *gorm.DB {
 		log.Fatalf("❌ 数据库迁移失败: %v", err)
 	}
 
+	// 迁移后清理：修复历史重复入库问题
+	// 1. 删除 account_id+folder+message_uid 维度的重复记录（保留最早入库的一条）
+	// 2. 将旧的带时间戳的 fallback message_id 更新为稳定格式
+	// 3. 创建复合唯一索引 account_id+folder+message_uid
+	// 4. 移除过宽的旧唯一索引（message_id 全局唯一）
+	cleanupDuplicateMails(db)
+
 	fmt.Println("✅ 数据库初始化成功:", dsn)
 	return db
 }
@@ -142,5 +149,82 @@ func EnsureSecuritySecrets(db *gorm.DB, jwtSecret, encryptionKey *string) {
 		*jwtSecret = useJWT
 		*encryptionKey = useEncKey
 		log.Printf("🔐 安全密钥已加载（JWT 来源：%s，加密密钥 来源：%s）", sourceJWT, sourceEncKey)
+	}
+}
+
+// cleanupDuplicateMails 迁移后清理函数：修复历史重复入库问题
+//
+// 问题背景：旧版 fallback Message-ID 使用了 time.Now()，导致同一封邮件
+// 每次同步生成不同 message_id，去重失效，同一封邮件被反复入库。
+//
+// 本函数执行以下步骤：
+//  1. 删除 account_id + folder + message_uid 维度的重复记录（保留最早入库的一条）
+//  2. 将旧的带时间戳的 fallback message_id 更新为新的稳定格式
+//  3. 创建复合唯一索引 idx_mails_account_folder_uid
+//  4. 移除过宽的旧唯一索引（message_id 全局唯一），避免不同账号收到相同 Message-ID 时冲突
+func cleanupDuplicateMails(db *gorm.DB) {
+	// 检查 mails 表是否存在
+	var tableExists int64
+	db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='mails'").Scan(&tableExists)
+	if tableExists == 0 {
+		return // 新数据库，无需清理
+	}
+
+	// 步骤1：删除 account_id + folder + message_uid 维度的重复记录（保留最小 id）
+	result := db.Exec(`
+		DELETE FROM mails
+		WHERE id NOT IN (
+			SELECT MIN(id) FROM mails
+			WHERE message_uid > 0
+			GROUP BY account_id, folder, message_uid
+		)
+		AND message_uid > 0
+	`)
+	if result.Error != nil {
+		log.Printf("⚠️  [迁移] 清理重复邮件记录失败: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("🧹 [迁移] 已清理 %d 条重复邮件记录", result.RowsAffected)
+	}
+
+	// 步骤2：将旧的 fallback message_id 更新为新的稳定格式
+	// 旧格式: <auto-{uid}-{timestamp}@proxy>  →  新格式: <auto-account-{aid}-folder-{folder}-uid-{uid}@magicmail>
+	result = db.Exec(`
+		UPDATE mails
+		SET message_id = '<auto-account-' || account_id || '-folder-' || COALESCE(folder, 'inbox') || '-uid-' || message_uid || '@magicmail>'
+		WHERE message_id LIKE '<auto-%@proxy>'
+	`)
+	if result.Error != nil {
+		log.Printf("⚠️  [迁移] 更新旧 IMAP fallback message_id 失败: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("🔄 [迁移] 已更新 %d 条旧格式 IMAP fallback message_id", result.RowsAffected)
+	}
+
+	// 旧格式: <pop3-{seq}-{timestamp}@proxy>  →  新格式: <pop3-account-{aid}-seq-{seq}@magicmail>
+	result = db.Exec(`
+		UPDATE mails
+		SET message_id = '<pop3-account-' || account_id || '-seq-' || message_uid || '@magicmail>'
+		WHERE message_id LIKE '<pop3-%@proxy>'
+	`)
+	if result.Error != nil {
+		log.Printf("⚠️  [迁移] 更新旧 POP3 fallback message_id 失败: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		log.Printf("🔄 [迁移] 已更新 %d 条旧格式 POP3 fallback message_id", result.RowsAffected)
+	}
+
+	// 步骤3：移除过宽的旧唯一索引（message_id 全局唯一）
+	// GORM 默认命名为 uniq_mails_message_id
+	db.Exec("DROP INDEX IF EXISTS uniq_mails_message_id")
+
+	// 步骤4：创建复合唯一索引（如果不存在）
+	// 确保 account_id + folder + message_uid 三元组唯一，防止重复入库
+	result = db.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_mails_account_folder_uid
+		ON mails(account_id, folder, message_uid)
+	`)
+	if result.Error != nil {
+		log.Printf("⚠️  [迁移] 创建复合唯一索引失败（可能存在残留重复数据，不影响运行）: %v", result.Error)
+		log.Printf("⚠️  [迁移] 建议手动执行: DELETE FROM mails WHERE id NOT IN (SELECT MIN(id) FROM mails WHERE message_uid > 0 GROUP BY account_id, folder, message_uid) AND message_uid > 0; 然后重启")
+	} else {
+		log.Printf("✅ [迁移] 复合唯一索引 idx_mails_account_folder_uid 已就绪")
 	}
 }
