@@ -44,9 +44,9 @@ RUN apk add --no-cache ca-certificates tzdata
 # 设置时区（可通过环境变量覆盖）
 ENV TZ=Asia/Shanghai
 
-# 创建非 root 用户
-RUN addgroup -S magicmail && \
-    adduser -S magicmail -G magicmail -h /app/data -s /sbin/nologin
+# 创建非 root 用户（固定 UID=1000，与宿主机普通用户匹配）
+RUN addgroup -S -g 1000 magicmail && \
+    adduser -S -u 1000 -G magicmail -h /app/data -s /sbin/nologin magicmail
 
 WORKDIR /app
 

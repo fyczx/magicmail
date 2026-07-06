@@ -16,6 +16,7 @@ services:
   magicmail:
     image: magiccode1412/magicmail:latest
     container_name: magicmail
+    user: "1000:1000"
     restart: unless-stopped
     ports:
       - "${MAGICMAIL_PORT:-8080}:8080"

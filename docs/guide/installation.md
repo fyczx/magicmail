@@ -210,8 +210,42 @@ docker compose -f docker-compose.prebuilt.yml down -v
 ```
 
 > 镜像地址: `magiccode1412/magicmail:latest`
-> 
+>
 > Docker Hub: https://hub.docker.com/r/magiccode1412/magicmail
+
+#### 目录权限说明
+
+容器以固定 UID=1000 的非 root 用户运行，**绝大多数情况下无需手动设置权限**：
+
+| 运行场景 | 是否需要额外操作 | 说明 |
+|---------|-----------------|------|
+| **普通用户运行** | ✅ 无需操作 | Linux/macOS 普通用户 UID 默认为 1000，自动匹配 |
+| **Windows Docker Desktop** | ✅ 无需操作 | 自动处理权限映射 |
+| **Mac Docker Desktop** | ✅ 无需操作 | 自动处理权限映射 |
+| **Root 用户运行** | ⚠️ 需执行一次 | `chown -R 1000:1000 docker-data` |
+
+::: tip 权限原理
+容器通过 `user: "1000:1000"` 配置以固定身份运行。当你在宿主机以普通用户创建 `docker-data` 目录时，其所有者即为 UID=1000，与容器内进程身份一致，SQLite 数据库可正常读写。
+:::
+
+#### 故障排查：数据库连接失败
+
+如果遇到错误 `unable to open database file: out of memory(14)`，这是 SQLite 对**权限错误**的误报。按以下步骤排查：
+
+```bash
+# 1. 确认当前用户 UID
+id -u    # 输出应为 1000（普通用户）
+
+# 2. 检查目录权限
+ls -la ./docker-data
+# 期望输出: drwxr-xr-x 2 user group ...
+
+# 3. 如权限不匹配，修复权限
+sudo chown -R 1000:1000 ./docker-data
+
+# 4. 重启容器
+docker compose -f docker-compose.prebuilt.yml restart
+```
 
 #### 环境变量配置（可选）
 
@@ -263,10 +297,11 @@ docker compose down -v
 # 拉取镜像
 docker pull magiccode1412/magicmail:latest
 
-# 运行
+# 运行（使用固定 UID=1000，与宿主机普通用户匹配）
 docker run -d \
   -p 8080:8080 \
   -v ./docker-data:/app/data \
+  --user 1000:1000 \
   --name magicmail \
   --restart unless-stopped \
   magiccode1412/magicmail:latest
@@ -279,6 +314,7 @@ docker build -t magicmail .
 docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
+  --user 1000:1000 \
   --name magicmail \
   --restart unless-stopped \
   magicmail

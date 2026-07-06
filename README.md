@@ -66,6 +66,8 @@ mkdir -p docker-data
 docker compose -f docker-compose.prebuilt.yml up -d
 ```
 
+> **注意**：请确保以**普通用户身份**运行上述命令（非 root）。容器内进程使用固定 UID=1000 运行，与宿主机普通用户自动匹配，无需手动修改目录权限。如需以 root 运行，请执行 `chown -R 1000:1000 docker-data` 后再启动。
+
 ### 方式三：开发模式
 
 ```bash
