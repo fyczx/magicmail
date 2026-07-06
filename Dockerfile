@@ -19,8 +19,8 @@ FROM golang:1.25-alpine AS backend-builder
 
 WORKDIR /app/server
 
-# CGO 编译 SQLite 需要 C 编译器
-RUN apk add --no-cache gcc musl-dev
+# CGO 编译 SQLite 需要 C 编译器（已改用 modernc.org/sqlite 纯 Go 实现）
+# RUN apk add --no-cache gcc musl-dev
 
 # 先复制依赖文件，利用 Docker 缓存
 COPY server/go.mod server/go.sum ./
@@ -32,8 +32,8 @@ COPY server/ .
 # 从前端阶段复制构建产物到 embed 路径
 COPY --from=frontend-builder /app/server/dist ./embedfs/dist
 
-# 编译（CGO_ENABLED=0 纯静态链接，支持 SQLite 需要 CGO）
-RUN CGO_ENABLED=1 go build -ldflags="-s -w -X main.isProduction=true" -o /magicmail .
+# 编译（CGO_ENABLED=0 纯静态链接，使用 modernc.org/sqlite 纯 Go 实现）
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.isProduction=true" -o /magicmail .
 
 # ---- Stage 3: 最终运行镜像 ----
 FROM alpine:3.20
