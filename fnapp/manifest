@@ -1,5 +1,5 @@
 appname               = magicmail
-version               = 1.1.0
+version               = 1.1.1
 display_name          = 魔法邮箱
 desc                  = """魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台，一站式收取、管理多个邮箱。支持 IMAP IDLE 实时推送、PWA 客户端、Webhook 通知、多账号管理、邮件去重等功能。
 <a href="https://github.com/magiccode1412/magicmail" target="_blank">GitHub</a>
@@ -13,8 +13,8 @@ maintainer            = 魔法代码
 maintainer_url        = https://github.com/magiccode1412/magicmail
 desktop_uidir         = ui
 desktop_applaunchname = magicmail.Application
-changelog             = """1. 新增批量操作(已读/未读)、每页显示数设置、IMAP IDLE自动降级、账号健康检查
-2. 修复163邮箱发送及CRLF注入漏洞
-3. UI响应式优化
+changelog             = """- 新增Outlook OAuth2支持、一键全部标记已读、邮箱服务商品牌图标、CNB平台Docker镜像构建
+- 完善Docker权限管理(PUID/PGID)、纯Go SQLite禁用CGO、飞牛fnOS FPK包构建与多架构Docker流水线
+- 修复OAuth2 IMAP认证失败、邮件重复入库、企业微信中文乱码(GBK/GB18030)、UI列表项样式等问题
 """
 

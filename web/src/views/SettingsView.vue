@@ -340,16 +340,6 @@
           </div>
         </div>
 
-        <!-- 更新日志 -->
-        <div v-if="Object.keys(versionChangelog).length > 0" class="changelog-box">
-          <div class="changelog-title">更新日志</div>
-          <ul class="changelog-list">
-            <li v-for="(msg, ver) in versionChangelog" :key="ver">
-              <strong>{{ ver }}</strong>: {{ msg }}
-            </li>
-          </ul>
-        </div>
-
         <div class="setting-actions">
           <button
             class="btn btn-secondary btn-sm"
@@ -406,7 +396,6 @@ const {
   latestVersion: remoteVersion,
   currentVersion: localVersion,
   hasUpdate: versionHasUpdate,
-  changelog: versionChangelog,
   downloadUrl: versionDownloadUrl,
   loading: checkingUpdate,
   checkUpdate: doCheckUpdate,
@@ -1087,32 +1076,6 @@ async function clearCache() {
 }
 .info-item .text-success { color: var(--success); }
 .info-item .text-tertiary { color: var(--text-tertiary); }
-
-/* ---- 更新日志 ---- */
-.changelog-box {
-  margin-bottom: var(--space-md);
-  padding: var(--space-md);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-}
-.changelog-title {
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-primary);
-  margin-bottom: var(--space-xs);
-}
-.changelog-list {
-  list-style: none; padding: 0; margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.changelog-list li {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.changelog-list strong { color: var(--text-primary); }
 
 .setting-actions {
   display: flex;
