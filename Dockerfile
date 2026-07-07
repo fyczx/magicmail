@@ -38,13 +38,14 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.isProduction=true" -o /magicm
 # ---- Stage 3: 最终运行镜像 ----
 FROM alpine:3.20
 
-# 安装运行时依赖（SQLite 需要 libc 和 ca-certificates）
-RUN apk add --no-cache ca-certificates tzdata
+# 安装运行时依赖（su-exec=降权, wget=健康检查, ca-certificates/tzdata=基础）
+RUN apk add --no-cache ca-certificates tzdata su-exec wget
 
 # 设置时区（可通过环境变量覆盖）
 ENV TZ=Asia/Shanghai
 
 # 创建非 root 用户（固定 UID=1000，与宿主机普通用户匹配）
+# 创建 magicmail 用户（UID/GID=1000），入口脚本会在运行时用 su-exec 降权切换到此用户
 RUN addgroup -S -g 1000 magicmail && \
     adduser -S -u 1000 -G magicmail -h /app/data -s /sbin/nologin magicmail
 
@@ -53,10 +54,15 @@ WORKDIR /app
 # 从构建阶段复制二进制
 COPY --from=backend-builder /magicmail /app/magicmail
 
-# 数据持久化目录
+# 数据持久化目录（归属在 entrypoint 中动态修正）
 RUN mkdir -p /app/data && chown magicmail:magicmail /app/data
 
-USER magicmail
+# 拷贝入口脚本（负责在容器启动时修正权限并降权运行）
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
+# 注意：不再写死 USER magicmail，改由 entrypoint 以 root 进入后 chown + su-exec 降权
+# 这样 Dockhand 等 NAS 管理器创建的 bind-mount 目录才能被自动修正归属
 
 # 数据库路径、监听端口
 ENV MAGICMAIL_DSN=/app/data/magicmail.db
@@ -66,4 +72,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-ENTRYPOINT ["/app/magicmail"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
+CMD ["/app/magicmail"]
