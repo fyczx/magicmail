@@ -123,6 +123,7 @@ func Register(app *fiber.App, db *gorm.DB) {
 	mails.Delete("/:id", mailHandler.Delete)
 	mails.Post("/batch-delete", mailHandler.BatchDelete)
 	mails.Post("/batch-read", mailHandler.BatchMarkAsRead)
+	mails.Post("/mark-all-read", mailHandler.MarkAllAsRead)
 
 	// ============================================================
 	//  草稿 API

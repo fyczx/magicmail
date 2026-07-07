@@ -38,6 +38,11 @@ export function batchMarkAsRead(ids, isRead) {
   return request.post('/mails/batch-read', { ids, is_read: isRead })
 }
 
+// 一键标记所有邮件为已读（按筛选条件）
+export function markAllAsRead(params = {}) {
+  return request.post('/mails/mark-all-read', params)
+}
+
 // 获取统计
 export function getMailStats(params = {}) {
   return request.get('/mails/stats', { params })

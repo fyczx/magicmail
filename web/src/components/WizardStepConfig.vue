@@ -63,24 +63,26 @@
       <WizardOAuth2Flow
         :provider-name="oauthProviderName"
         :email="localForm.email"
+        :custom-client-id="localForm.custom_client_id"
         @authorized="onAuthorized"
       />
 
-      <!-- 手动密码备选（折叠） -->
-      <details class="manual-pw-section">
-        <summary class="manual-pw-summary">或手动输入应用密码</summary>
-        <div class="manual-pw-fields">
+      <!-- 自定义 Client ID（高级选项） -->
+      <details class="advanced-section">
+        <summary class="advanced-summary">高级选项</summary>
+        <div class="advanced-fields">
           <div class="form-group">
-            <label class="form-label">应用密码</label>
-            <input v-model="localForm.password" type="password" class="input" placeholder="如果有的话，可手动输入应用密码" />
+            <label class="form-label">自定义 Client ID</label>
+            <input v-model="localForm.custom_client_id" type="text" class="input font-mono" placeholder="留空使用默认值" />
+            <p class="form-hint text-muted">如需使用自注册的 Azure AD 应用，请填写其 Application (client) ID</p>
           </div>
-          <p class="form-hint text-muted">部分服务商允许生成应用专用密码作为 OAuth2 的替代方案</p>
         </div>
       </details>
 
       <div class="form-actions">
         <button type="button" class="btn btn-primary" @click="handleNext" :disabled="!canProceedOAuth2">
-          完成 ✓
+          下一步
+          <ChevronRight :size="16" />
         </button>
       </div>
     </div>
@@ -136,7 +138,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { ChevronLeft } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import WizardOAuth2Flow from './WizardOAuth2Flow.vue'
 import { getProviderByKey } from '@/data/providers.js'
 
@@ -220,6 +222,8 @@ function handleNext() {
 }
 
 function onAuthorized(tokenData) {
+  // 先将当前已填写的本地表单数据同步到父组件 formData，防止被后续 watch 覆盖
+  Object.assign(props.formData, localForm)
   emit('oauth2Authorized', tokenData)
 }
 </script>
@@ -355,24 +359,26 @@ function onAuthorized(tokenData) {
 .btn-secondary { background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color); }
 .btn-secondary:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* ---- 手动密码折叠 ---- */
-.manual-pw-section {
+/* ---- 高级选项折叠 ---- */
+.advanced-section {
   border: 1px dashed var(--border-color);
   border-radius: var(--radius-md);
   overflow: hidden;
   margin-top: var(--space-sm);
 }
-.manual-pw-section summary { list-style: none; }
-.manual-pw-section summary::-webkit-details-marker { display: none; }
-.manual-pw-summary {
+.advanced-section summary { list-style: none; }
+.advanced-section summary::-webkit-details-marker { display: none; }
+.advanced-summary {
   padding: 10px 14px;
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
   cursor: pointer;
   user-select: none;
 }
-.manual-pw-summary:hover { color: var(--text-secondary); background: var(--bg-hover); }
-.manual-pw-fields { padding: 12px 16px; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: var(--space-sm); }
+.advanced-summary:hover { color: var(--text-secondary); background: var(--bg-hover); }
+.advanced-fields { padding: 12px 16px; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: var(--space-sm); }
+
+.font-mono { font-family: 'SF Mono', 'Fira Code', monospace; letter-spacing: 0.3px; }
 
 @media (max-width: 480px) {
   .form-row { flex-direction: column; }

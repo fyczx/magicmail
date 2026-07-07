@@ -85,8 +85,16 @@ func (s *AccountService) Create(req models.AccountRequest) (*models.AccountRespo
 		ImapHost:       req.Host,
 		Port:           req.Port,
 		SmtpHost:       req.SmtpHost,
+		SmtpPort:       req.SmtpPort,
 		Username:       req.Username,
 		Password:       req.Password,
+		// OAuth2 字段
+		AuthType:        req.AuthType,
+		OAuthProvider:    req.OAuthProvider,
+		RefreshToken:    req.RefreshToken,
+		CustomClientId:  req.CustomClientId,
+		TokenExpiresAt:  req.TokenExpiresAt,
+		// 同步与代理
 		ProxyEnabled:   req.ProxyEnabled,
 		ProxyURL:       req.ProxyURL,
 		SyncMode:       req.SyncMode,

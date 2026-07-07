@@ -2,6 +2,12 @@
 
 所有重要变更都会记录在此文件中。
 
+## [v1.1.1] - 2026-07-07
+
+- 新增Outlook OAuth2支持、一键全部标记已读、邮箱服务商品牌图标、CNB平台Docker镜像构建
+- 完善Docker权限管理(PUID/PGID)、纯Go SQLite禁用CGO、飞牛fnOS FPK包构建与多架构Docker流水线
+- 修复OAuth2 IMAP认证失败、邮件重复入库、企业微信中文乱码(GBK/GB18030)、UI列表项样式等问题
+
 
 ## [v1.1.0] - 2026-07-01
 

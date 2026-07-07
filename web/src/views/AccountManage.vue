@@ -30,8 +30,11 @@
       >
         <!-- 左侧：图标 + 基本信息 -->
         <div class="item-left">
-          <div class="item-icon">
-            <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+          <div class="item-icon" :class="{ 'has-brand': getProviderIcon(acc) }">
+            <!-- 服务商品牌图标 -->
+            <span v-if="getProviderIcon(acc)" class="icon-svg" v-html="getProviderIcon(acc)"></span>
+            <!-- 默认信封图标 -->
+            <svg v-else width="20" height="20" viewBox="0 0 22 22" fill="none">
               <rect x="2.5" y="5.5" width="17" height="12" rx="2" stroke="currentColor" stroke-width="1.6"/>
               <path d="M2.5 7L11 13L19.5 7" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
             </svg>
@@ -127,6 +130,7 @@ import { useToast } from '@/composables/useToast'
 import EmptyState from '../components/EmptyState.vue'
 import AccountForm from '../components/AccountForm.vue'
 import AddAccountWizard from '../components/AddAccountWizard.vue'
+import { getProviderByAccount } from '@/data/providers.js'
 
 const toast = useToast()
 
@@ -202,6 +206,12 @@ async function handleDelete(account) {
 }
 
 // --- 工具 ---
+// 根据账号信息匹配服务商，返回其 SVG 图标字符串（无匹配则返回空，回退到默认信封图标）
+function getProviderIcon(acc) {
+  const p = getProviderByAccount(acc)
+  return p && p.svgIcon ? p.svgIcon : ''
+}
+
 function formatTime(dateStr) {
   if (!dateStr) return ''
   const date = new Date(dateStr)
@@ -255,6 +265,11 @@ function formatTime(dateStr) {
   background: var(--bg-tertiary);
   color: var(--text-tertiary);
 }
+/* 禁用态下品牌图标仍保持透明背景（整体 opacity 已处理变淡效果） */
+.account-item.is-disabled .item-icon.has-brand {
+  background: transparent;
+  color: inherit;
+}
 
 /* 左侧：图标 + 名称 */
 .item-left {
@@ -275,6 +290,22 @@ function formatTime(dateStr) {
   background: var(--mail-unread-bg);
   color: var(--primary-500);
   flex-shrink: 0;
+}
+/* 服务商品牌图标：移除背景色与主题色，保留 SVG 自身品牌色 */
+.item-icon.has-brand {
+  background: transparent;
+  color: inherit;
+}
+.item-icon .icon-svg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.item-icon .icon-svg :deep(svg) {
+  width: 28px;
+  height: 28px;
 }
 
 .item-info {

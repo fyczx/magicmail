@@ -15,16 +15,18 @@ import (
 )
 
 const (
-	// Microsoft OAuth2 端点（个人账户 - consumers tenant）
-	microsoftDeviceCodeEndpoint = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
-	microsoftTokenEndpoint      = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+	// Microsoft OAuth2 端点（使用 common tenant，同时支持个人和工作账户）
+	// consumers tenant 不支持 outlook.office365.com IMAP scope，必须用 common
+	microsoftDeviceCodeEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/devicecode"
+	microsoftTokenEndpoint      = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
 	// Microsoft 默认 Client ID（MagicMail 开发者应用）
 	microsoftDefaultClientID = "0051d6e3-655d-4b1f-ab63-6695bb65d3f1"
 
-	// Microsoft 授权范围（使用 Microsoft Graph，Graph Token 同样支持 IMAP XOAUTH2 认证）
-	microsoftIMAPScope   = "https://graph.microsoft.com/Mail.Read"
-	microsoftSMTPScope   = "https://graph.microsoft.com/Mail.Send"
+	// Microsoft 授权范围（用户委托流程必须使用 outlook.office.com，不能用 outlook.office365.com）
+	// 参考: https://learn.microsoft.com/en-us/exchange/client-developer/legacy-protocols/how-to-authenticate-an-imap-pop-smtp-application-by-using-oauth
+	microsoftIMAPScope   = "https://outlook.office.com/IMAP.AccessAsUser.All"
+	microsoftSMTPScope   = "https://outlook.office.com/SMTP.Send"
 	microsoftOfflineScope = "offline_access" // 获取 Refresh Token
 )
 

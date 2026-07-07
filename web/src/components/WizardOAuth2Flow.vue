@@ -29,10 +29,13 @@
 
       <!-- 展示验证码 -->
       <div v-else-if="status === 'pending'" class="flow-state flow-pending">
-        <p class="flow-instruction">请在浏览器中打开以下链接并输入验证码完成授权：</p>
+        <p class="flow-instruction">请点击下方链接打开授权页面，然后输入验证码：</p>
 
         <div class="auth-link-row">
-          <span class="auth-link">{{ deviceCodeData?.verification_uri }}</span>
+          <a :href="deviceCodeData?.verification_uri" target="_blank" rel="noopener noreferrer" class="auth-link clickable">
+            {{ deviceCodeData?.verification_uri }}
+            <ExternalLink :size="13" class="link-icon" />
+          </a>
           <button type="button" class="btn-copy" @click="copyToClipboard(deviceCodeData?.verification_uri, '链接')">
             <Copy :size="13" />
           </button>
@@ -80,13 +83,14 @@
 
 <script setup>
 import { ref, computed, onUnmounted, watch } from 'vue'
-import { Lock, Zap, Copy, CheckCircle, AlertCircle } from 'lucide-vue-next'
+import { Lock, Zap, Copy, CheckCircle, AlertCircle, ExternalLink } from 'lucide-vue-next'
 import { requestDeviceCode, pollToken } from '@/api/account'
 import { useToast } from '@/composables/useToast'
 
 const props = defineProps({
   providerName: { type: String, default: '' },
-  email: { type: String, default: '' }
+  email: { type: String, default: '' },
+  customClientId: { type: String, default: '' }
 })
 
 const emit = defineEmits(['authorized'])
@@ -119,7 +123,7 @@ async function startAuth() {
   isActive.value = true
 
   try {
-    const res = await requestDeviceCode(props.providerName, { email: props.email })
+    const res = await requestDeviceCode(props.providerName, { email: props.email, custom_client_id: props.customClientId || undefined })
     deviceCodeData.value = res.data
     countdownTotal.value = res.data.expires_in || 900
     countdownSeconds.value = res.data.expires_in || 900
@@ -137,7 +141,7 @@ function startPolling(deviceCode) {
   const interval = deviceCodeData.value?.interval || 5
   pollTimer = setInterval(async () => {
     try {
-      const res = await pollToken(props.providerName, { device_code: deviceCode })
+      const res = await pollToken(props.providerName, { device_code: deviceCode, custom_client_id: props.customClientId || undefined })
       if (res.pending) {
         // 继续轮询
         return
@@ -298,6 +302,7 @@ watch(() => props.providerName, () => {
 .auth-link-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -309,7 +314,18 @@ watch(() => props.providerName, () => {
   font-size: 13px;
   color: var(--primary-500);
   word-break: break-all;
-  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  transition: opacity 0.2s, text-decoration 0.2s;
+}
+.auth-link.clickable:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+.link-icon {
+  flex-shrink: 0;
 }
 .btn-copy {
   flex-shrink: 0;

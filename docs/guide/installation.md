@@ -215,37 +215,40 @@ docker compose -f docker-compose.prebuilt.yml down -v
 
 #### 目录权限说明
 
-容器以固定 UID=1000 的非 root 用户运行，**绝大多数情况下无需手动设置权限**：
+容器通过入口脚本自动处理数据目录权限，**所有场景下均无需手动设置**：
 
 | 运行场景 | 是否需要额外操作 | 说明 |
 |---------|-----------------|------|
-| **普通用户运行** | ✅ 无需操作 | Linux/macOS 普通用户 UID 默认为 1000，自动匹配 |
+| **普通用户运行** | ✅ 无需操作 | 入口脚本自动 `chown` 修正归属 |
+| **Dockhand / Unraid 等 NAS** | ✅ 无需操作 | 完美解决 NAS 管理器创建的目录权限问题 |
 | **Windows Docker Desktop** | ✅ 无需操作 | 自动处理权限映射 |
 | **Mac Docker Desktop** | ✅ 无需操作 | 自动处理权限映射 |
-| **Root 用户运行** | ⚠️ 需执行一次 | `chown -R 1000:1000 docker-data` |
+| **Root 用户运行** | ✅ 无需操作 | 入口脚本自动修正后降权运行 |
 
 ::: tip 权限原理
-容器通过 `user: "1000:1000"` 配置以固定身份运行。当你在宿主机以普通用户创建 `docker-data` 目录时，其所有者即为 UID=1000，与容器内进程身份一致，SQLite 数据库可正常读写。
+容器启动时以 **root 身份进入入口脚本**，通过 `chown` 自动修正 bind-mount 目录（`./docker-data`）的归属，然后通过 `su-exec` 以 `PUID:PGID`（默认 1000:1000）降权运行。这样无论宿主机目录归谁所有、由谁创建，都能自动适配。
+
+如果希望宿主机的数据文件归属特定用户，可通过 `PUID` 和 `PGID` 环境变量指定（在宿主执行 `id 用户名` 获取 UID/GID）。
 :::
 
 #### 故障排查：数据库连接失败
 
-如果遇到错误 `unable to open database file: out of memory(14)`，这是 SQLite 对**权限错误**的误报。按以下步骤排查：
+如果遇到错误 `unable to open database file: out of memory(14)`，这是 SQLite 对**权限错误**的误报。通常容器入口脚本已自动处理，如仍出现请检查：
 
 ```bash
-# 1. 确认当前用户 UID
-id -u    # 输出应为 1000（普通用户）
+# 1. 确认入口脚本日志（查看 chown 和降权信息）
+docker compose -f docker-compose.prebuilt.yml logs | grep entrypoint
 
-# 2. 检查目录权限
-ls -la ./docker-data
-# 期望输出: drwxr-xr-x 2 user group ...
+# 2. 如需要，指定与宿主机匹配的 PUID/PGID（默认为 1000:1000）
+#    在 .env 或环境变量中设置：
+#    PUID=1000
+#    PGID=1000
 
-# 3. 如权限不匹配，修复权限
-sudo chown -R 1000:1000 ./docker-data
-
-# 4. 重启容器
+# 3. 重启容器
 docker compose -f docker-compose.prebuilt.yml restart
 ```
+
+> 更多排查思路：确保**未在 dockhand 等管理器中将容器运行用户强制设为非 root**（入口脚本需要 root 才能 `chown`）。
 
 #### 环境变量配置（可选）
 
@@ -254,6 +257,8 @@ docker compose -f docker-compose.prebuilt.yml restart
 ```bash
 # 创建 .env 文件（可选）
 cat > .env << 'EOF'
+PUID=1000
+PGID=1000
 MAGICMAIL_PORT=8080
 TZ=Asia/Shanghai
 MAGICMAIL_MEMORY_LIMIT=512M
@@ -263,6 +268,8 @@ EOF
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
+| `PUID` | `1000` | 容器内运行用户的 UID（入口脚本自动 `chown` 数据目录至此用户） |
+| `PGID` | `1000` | 容器内运行用户的 GID |
 | `MAGICMAIL_PORT` | `8080` | 映射到宿主机的端口 |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
 | `MAGICMAIL_MEMORY_LIMIT` | `512M` | 内存上限 |
@@ -297,11 +304,12 @@ docker compose down -v
 # 拉取镜像
 docker pull magiccode1412/magicmail:latest
 
-# 运行（使用固定 UID=1000，与宿主机普通用户匹配）
+# 运行（入口脚本自动处理数据目录权限，通过 PUID/PGID 控制运行用户）
 docker run -d \
   -p 8080:8080 \
   -v ./docker-data:/app/data \
-  --user 1000:1000 \
+  -e PUID=1000 \
+  -e PGID=1000 \
   --name magicmail \
   --restart unless-stopped \
   magiccode1412/magicmail:latest
@@ -314,7 +322,8 @@ docker build -t magicmail .
 docker run -d \
   -p 8080:8080 \
   -v ./data:/app/data \
-  --user 1000:1000 \
+  -e PUID=1000 \
+  -e PGID=1000 \
   --name magicmail \
   --restart unless-stopped \
   magicmail

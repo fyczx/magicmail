@@ -4,8 +4,9 @@
 package handlers
 
 import (
-	"magicmail/services"
 	"magicmail/models"
+	"magicmail/oauth2"
+	"magicmail/services"
 	"strconv"
 	"time"
 
@@ -91,8 +92,19 @@ func (h *AccountHandler) Create(c *fiber.Ctx) error {
 	}
 
 	// 基本校验
-	if req.Name == "" || req.Email == "" || req.Host == "" || req.Username == "" || req.Password == "" {
+	if req.Name == "" || req.Email == "" || req.Host == "" || req.Username == "" {
 		return c.Status(400).JSON(fiber.Map{"error": "必填字段不能为空"})
+	}
+
+	// OAuth2 认证：允许 password 为空，但必须有 refresh_token
+	// 传统密码认证：password 必填
+	isOAuth2 := oauth2.IsOAuth2Account(req.AuthType)
+	if isOAuth2 {
+		if req.RefreshToken == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "OAuth2 授权未完成或 Refresh Token 缺失"})
+		}
+	} else if req.Password == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "密码不能为空"})
 	}
 
 	account, err := h.service.Create(req)

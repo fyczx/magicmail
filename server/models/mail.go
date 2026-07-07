@@ -12,8 +12,8 @@ import (
 type Mail struct {
 	ID            uint           `json:"id" gorm:"primaryKey"`
 	AccountID     uint           `json:"account_id" gorm:"index;not null;comment:所属邮箱账号ID"`
-	MessageID     string         `json:"message_id" gorm:"type:varchar(512);uniqueIndex;not null;comment:原始Message-ID(去重用)"`
-	MessageUID    uint32         `json:"message_uid" gorm:"comment:IMAP UID(用于增量同步)"`
+	MessageID     string         `json:"message_id" gorm:"type:varchar(512);index;not null;comment:原始Message-ID(去重用)"`
+	MessageUID    uint32         `json:"message_uid" gorm:"index;comment:IMAP UID(用于增量同步)"`
 	Folder        string         `json:"folder" gorm:"type:varchar(32);default:'inbox';index;comment:邮件文件夹(inbox/sent)"`
 	From          string         `json:"from" gorm:"type:varchar(255);not null;default:'';comment:发件人"`
 	To            string         `json:"to" gorm:"type:text;not null;default:'';comment:收件人"`

@@ -57,6 +57,19 @@
       </div>
 
       <div class="filter-actions">
+        <!-- 一键已读 -->
+        <button
+          class="filter-btn mark-all-read-btn"
+          @click="handleMarkAllRead"
+          title="将所有邮件标记为已读"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M1.5 7.5L4.5 10.5L9 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6 10.5L12.5 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          一键已读
+        </button>
+
         <!-- 选择模式开关 -->
         <button
           class="filter-btn select-mode-btn"
@@ -455,6 +468,19 @@ async function handleBatchMarkUnread() {
   }
 }
 
+async function handleMarkAllRead() {
+  if (!confirm('确定要将当前视图中的所有邮件标记为已读吗？')) return
+  try {
+    const res = await mailStore.markAllAsRead()
+    toast.success(res?.message || '已将所有邮件标记为已读')
+    // 刷新统计与列表
+    mailStore.fetchStats()
+    mailStore.fetchMails(mailStore.currentPage)
+  } catch (e) {
+    toast.error('一键已读失败: ' + e.message)
+  }
+}
+
 // --- 生命周期 ---
 let refreshTimer = null
 
@@ -788,6 +814,10 @@ function stopRefreshTimer() {
   border-color: var(--primary-300);
   color: var(--primary-500);
   background: var(--mail-unread-bg);
+}
+.mark-all-read-btn:hover {
+  border-color: var(--success, #10b981);
+  color: var(--success, #10b981);
 }
 
 .btn-icon-sm {

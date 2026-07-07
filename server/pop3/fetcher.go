@@ -89,7 +89,7 @@ func (f *POP3Fetcher) SyncMailbox(client *POP3Client) (int, error) {
 		// 去重 + 入库
 		var existing int64
 		f.db.Model(&models.Mail{}).
-			Where("message_id = ? AND account_id = ?", parsed.MessageID, client.Account.ID).
+			Where("message_id = ? AND account_id = ? AND folder = ?", parsed.MessageID, client.Account.ID, "inbox").
 			Count(&existing)
 		if existing > 0 {
 			continue
@@ -130,7 +130,9 @@ func (f *POP3Fetcher) parseMessage(client *POP3Client, rawData []byte, seq uint3
 
 	messageID := entity.Header.Get("message-id")
 	if messageID == "" {
-		messageID = fmt.Sprintf("<pop3-%d-%s@proxy>", seq, time.Now().Format("20060102150405"))
+		// 无 Message-ID 时使用稳定键（account_id + seq），
+		// 避免使用 time.Now() 导致每次同步生成不同 ID 从而去重失败
+		messageID = fmt.Sprintf("<pop3-account-%d-seq-%d@magicmail>", client.Account.ID, seq)
 	}
 
 	fromAddr := extractAddrHeader(&entity.Header, "from")
@@ -151,6 +153,7 @@ func (f *POP3Fetcher) parseMessage(client *POP3Client, rawData []byte, seq uint3
 
 	mailObj := &models.Mail{
 		AccountID:  client.Account.ID,
+		Folder:     "inbox", // POP3 始终是收件箱
 		MessageID:  messageID,
 		MessageUID: seq,
 		From:       fromAddr,

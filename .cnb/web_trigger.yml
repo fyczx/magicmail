@@ -1,0 +1,12 @@
+branch:
+  - buttons:
+      - name: docker_cnb
+        description: 构建完整docker镜像
+        event: web_trigger_docker_cnb
+      - name: docker_dev
+        description: 构建完整docker镜像
+        event: web_trigger_docker_dev
+      - name: sync_from_github
+        description: 同步github仓库dev分支
+        event: web_trigger_sync_from_github
+      

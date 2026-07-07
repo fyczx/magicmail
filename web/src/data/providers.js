@@ -112,3 +112,47 @@ export function isOAuth2Provider(key) {
   const p = getProviderByKey(key)
   return p && p.oauthRequired
 }
+
+/**
+ * 根据邮箱账号信息（host / oauth_provider / email）匹配对应的提供商配置
+ * 用于在账号列表等位置显示对应服务商的品牌图标。
+ *
+ * 匹配优先级：
+ *   1. 收信服务器地址 host === preset.host
+ *   2. OAuth2 服务商 oauth_provider === provider.oauthProvider
+ *   3. 邮箱域名 === provider.domain / provider.domains
+ *
+ * @param {Object} account 账号对象，需包含 host/email/oauth_provider 之一
+ * @returns {Object|null} 匹配到的 provider，未匹配返回 null
+ */
+export function getProviderByAccount(account) {
+  if (!account) return null
+  const host = (account.host || '').toLowerCase()
+  const email = (account.email || '').toLowerCase()
+  const oauthProvider = (account.oauth_provider || '').toLowerCase()
+  const emailDomain = email.split('@')[1] || ''
+
+  // 1. 用收信服务器地址匹配（最准确）
+  if (host) {
+    const byHost = providers.find(p => p.preset && p.preset.host && p.preset.host.toLowerCase() === host)
+    if (byHost) return byHost
+  }
+
+  // 2. 用 OAuth2 服务商匹配
+  if (oauthProvider) {
+    const byOauth = providers.find(p => p.oauthProvider && p.oauthProvider.toLowerCase() === oauthProvider)
+    if (byOauth) return byOauth
+  }
+
+  // 3. 用邮箱域名匹配
+  if (emailDomain) {
+    const byDomain = providers.find(p => {
+      if (p.domain && p.domain.toLowerCase() === emailDomain) return true
+      if (p.domains && p.domains.some(d => d.toLowerCase() === emailDomain)) return true
+      return false
+    })
+    if (byDomain) return byDomain
+  }
+
+  return null
+}

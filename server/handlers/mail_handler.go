@@ -265,6 +265,44 @@ func (h *MailHandler) BatchMarkAsRead(c *fiber.Ctx) error {
 	})
 }
 
+// MarkAllAsRead 一键将符合筛选条件的邮件全部标记为已读
+// @Summary 一键标记所有邮件为已读
+// @Tags 邮件管理
+// @Accept json
+// @Param body body object false "筛选条件（与列表查询一致，可选）"
+// @Success 200 {object} map[string]interface{}
+// @Router /api/v1/mails/mark-all-read [post]
+func (h *MailHandler) MarkAllAsRead(c *fiber.Ctx) error {
+	var body struct {
+		AccountID     uint   `json:"account_id"`
+		Folder        string `json:"folder"`
+		Keyword       string `json:"keyword"`
+		IsRead        *bool  `json:"is_read"`
+		HasAttachment *bool  `json:"has_attachment"`
+	}
+	// 容忍空 body
+	_ = c.BodyParser(&body)
+
+	filter := models.MailListFilter{
+		AccountID:     body.AccountID,
+		Folder:        body.Folder,
+		Keyword:       body.Keyword,
+		IsRead:        body.IsRead,
+		HasAttachment: body.HasAttachment,
+	}
+
+	updated, err := h.service.MarkAllAsRead(filter)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "操作失败"})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"updated": updated,
+		"message": fmt.Sprintf("已将 %d 封邮件标记为已读", updated),
+	})
+}
+
 // GetStats 获取邮件统计信息
 // @Summary 邮件统计
 // @Tags 邮件管理

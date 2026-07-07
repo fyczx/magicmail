@@ -83,14 +83,13 @@ MagicMail 采用**设备码流 (Device Code Flow)** 实现这一过程，
 
 1. 在左侧菜单中点击 **API 权限**
 2. 点击 **+ 添加权限** 按钮
-3. 选择 **Microsoft API** 标签页
-4. 点击 **Microsoft Graph**
+3. 选择 **我的组织使用的 API** 标签页
+4. 搜索并选择 **Office 365 Exchange Online**
 
-:::: info 为什么选 Microsoft Graph？
-对于个人 Microsoft 账号（`@outlook.com` / `@hotmail.com`），
-Azure Portal 中已不再单独展示 **Office 365 Exchange Online** API。
-微软已将邮件权限合并到 Microsoft Graph 中，
-通过 Graph 获取的 Token 同样可以用于 IMAP/SMTP XOAUTH2 认证。
+::: warning 必须使用 Office 365 Exchange Online
+IMAP/SMTP XOAUTH2 认证**必须**使用 Office 365 Exchange Online 的权限，
+**不能**使用 Microsoft Graph 的 `Mail.Read` / `Mail.Send`。
+Graph Token 无法用于 IMAP XOAUTH2 认证，会导致 `NO AUTHENTICATE failed` 错误。
 :::
 
 ### 3.2 选择所需权限
@@ -99,9 +98,9 @@ Azure Portal 中已不再单独展示 **Office 365 Exchange Online** API。
 
 | 权限名称 | 说明 |
 |----------|------|
-| `Mail.Read` | 读取用户邮件 |
-| `Mail.Send` | 以用户身份发送邮件 |
-| `offline_access` | 获取 Refresh Token，用于长期访问 |
+| `IMAP.AccessAsUser.All` | 通过 IMAP 协议访问用户邮箱 |
+| `SMTP.Send` | 通过 SMTP 协议以用户身份发送邮件 |
+| `offline_access` | 获取 Refresh Token，用于长期访问（需在 Microsoft Graph 下单独添加） |
 
 选中后，点击页面底部的 **添加权限** 按钮。
 

@@ -14,7 +14,6 @@ services:
   magicmail:
     build: .
     container_name: magicmail
-    user: "1000:1000"
     restart: unless-stopped
     ports:
       - "${MAGICMAIL_PORT:-8080}:8080"
@@ -22,6 +21,9 @@ services:
       # SQLite 数据库 + 附件缓存持久化
       - ./docker-data:/app/data
     environment:
+      # ─── 用户权限（入口脚本会自动 chown 数据目录至此用户） ──
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       # ─── 运行模式 ──────────────────────
       - MAGICMAIL_ENV=production
       # ─── 服务监听 ──────────────────────
@@ -40,7 +42,7 @@ services:
       # ─── 时区 ──────────────────────────
       - TZ=${TZ:-Asia/Shanghai}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 30s
       timeout: 5s
       start_period: 15s

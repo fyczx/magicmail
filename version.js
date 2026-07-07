@@ -265,11 +265,6 @@ function main() {
   vJson.latest = newVersionTag
   vJson.releaseDate = formatDate()
 
-  // 如果有 changelog，追加到 changelog 对象
-  if (changelogMessage) {
-    vJson.changelog[newVersionTag] = changelogMessage
-  }
-
   // 自动检测 GitHub URLs（如果尚未配置）
   const detected = detectGitHubUrls()
   if (!vJson.githubUrl && detected.githubUrl) {
