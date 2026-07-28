@@ -1,0 +1,72 @@
+name: Build FreeBSD amd64 Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-freebsd-amd64:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: true
+          cache-dependency-path: |
+            server/go.sum
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            web/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: web
+        run: pnpm build
+
+      - name: Prepare embedded frontend assets
+        run: |
+          rm -rf server/embedfs/dist
+          cp -r web/dist server/embedfs/dist
+
+      - name: Build FreeBSD amd64 binary
+        working-directory: server
+        env:
+          GOOS: freebsd
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p ../bin
+          go build -trimpath -ldflags='-s -w -X main.version=${GITHUB_SHA::7} -X main.isProduction=true' -o ../bin/magicmail-freebsd-amd64 .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: magicmail-freebsd-amd64
+          path: bin/magicmail-freebsd-amd64
+          if-no-files-found: error
