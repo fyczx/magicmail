@@ -11,35 +11,27 @@ on:
 permissions:
   contents: write
 
+env:
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
 jobs:
-  build-freebsd-amd64:
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.25.0'
-          cache: true
-          cache-dependency-path: |
-            server/go.sum
+      - uses: actions/checkout@v5
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
-          run_install: false
+          version: '10'
+          package_json_file: web/package.json
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
-          cache-dependency-path: |
-            web/pnpm-lock.yaml
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Install web dependencies
         working-directory: web
@@ -49,14 +41,31 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      - name: Prepare embedded frontend assets
-        run: |
-          rm -rf server/embedfs/dist
-          if [ ! -d server/dist ]; then
-            echo "Frontend build output was not found at server/dist"
-            exit 1
-          fi
-          cp -r server/dist server/embedfs/dist
+      - name: Upload frontend artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-dist
+          path: server/dist/
+          retention-days: 1
+
+  build-freebsd-amd64:
+    name: Build FreeBSD amd64
+    needs: build-frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: server/go.sum
+
+      - name: Download frontend artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: frontend-dist
+          path: server/embedfs/dist/
 
       - name: Build FreeBSD amd64 binary
         working-directory: server
@@ -65,23 +74,40 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 0
         run: |
-          mkdir -p ../bin
-          go build -trimpath -ldflags='-s -w -X main.version=${GITHUB_SHA::7} -X main.isProduction=true' -o ../bin/magicmail-freebsd-amd64 .
+          mkdir -p ../dist
+          go build \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${VERSION} -X main.isProduction=true" \
+            -o ../dist/magicmail-freebsd-amd64 \
+            .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: magicmail-freebsd-amd64
-          path: bin/magicmail-freebsd-amd64
-          if-no-files-found: error
+          path: dist/magicmail-freebsd-amd64
+          retention-days: 1
 
-      - name: Create or update GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+  release:
+    name: Create GitHub Release
+    needs: build-freebsd-amd64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: magicmail-freebsd-amd64
+          path: release-assets
+
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('freebsd-{0}', github.run_id) }}
-          name: FreeBSD amd64 ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build {0}', github.run_id) }}
+          tag_name: ${{ env.VERSION }}
+          name: "Magicmail ${{ env.VERSION }}"
           draft: false
-          prerelease: ${{ github.ref_type != 'tag' }}
+          prerelease: ${{ contains(env.VERSION, '-') }}
           files: |
-            bin/magicmail-freebsd-amd64
+            release-assets/magicmail-freebsd-amd64
