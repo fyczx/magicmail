@@ -52,7 +52,11 @@ jobs:
       - name: Prepare embedded frontend assets
         run: |
           rm -rf server/embedfs/dist
-          cp -r web/dist server/embedfs/dist
+          if [ ! -d server/dist ]; then
+            echo "Frontend build output was not found at server/dist"
+            exit 1
+          fi
+          cp -r server/dist server/embedfs/dist
 
       - name: Build FreeBSD amd64 binary
         working-directory: server
