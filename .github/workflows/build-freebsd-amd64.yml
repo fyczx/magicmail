@@ -4,54 +4,20 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # 支持手动触发
-    inputs:
-      version:
-        description: '版本号 (如 v1.0.0, 留空则使用当前最新 tag)'
-        required: false
-        type: string
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  # 从 tag 提取版本号（如 v1.0.0 → 1.0.0），手动触发时使用输入值或最新 tag
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
 jobs:
-  resolve-version:
-    name: Resolve Version
+  build-freebsd-amd64:
+    name: Build FreeBSD amd64
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.resolve.outputs.version }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
-      - name: Resolve version
-        id: resolve
-        shell: bash
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [ -f version.json ]; then
-            VERSION=$(python3 -c 'import json, pathlib; p = pathlib.Path("version.json"); data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}; print(data.get("latest", "").strip())')
-            VERSION="${VERSION:-}"
-          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            VERSION="$GITHUB_REF_NAME"
-          else
-            VERSION=$(git tag --sort=-version:refname | head -n 1 || true)
-            if [ -z "$VERSION" ]; then
-              VERSION="${GITHUB_REF_NAME:-dev}"
-            fi
-          fi
-
-          if [ -z "$VERSION" ]; then
-            VERSION="dev"
-          fi
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-  build-frontend:
-    name: Build Frontend
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -75,31 +41,17 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      - name: Upload frontend artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: frontend-dist
-          path: server/dist/
-          retention-days: 1
-
-  build-freebsd-amd64:
-    name: Build FreeBSD amd64
-    needs: [resolve-version, build-frontend]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v5
-
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
           cache-dependency-path: server/go.sum
 
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v5
-        with:
-          name: frontend-dist
-          path: server/embedfs/dist/
+      - name: Prepare frontend assets for embedding
+        run: |
+          mkdir -p server/embedfs/dist
+          if [ -d server/dist ]; then
+            cp -R server/dist/. server/embedfs/dist/
+          fi
 
       - name: Build FreeBSD amd64 binary
         working-directory: server
@@ -107,7 +59,7 @@ jobs:
           GOOS: freebsd
           GOARCH: amd64
           CGO_ENABLED: 0
-          VERSION: ${{ needs.resolve-version.outputs.version }}
+          VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p ../dist
           go build \
@@ -125,12 +77,11 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [resolve-version, build-freebsd-amd64]
+    needs: build-freebsd-amd64
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - uses: actions/checkout@v5
-
       - name: Download build artifact
         uses: actions/download-artifact@v5
         with:
@@ -139,12 +90,8 @@ jobs:
 
       - name: Create release
         uses: softprops/action-gh-release@v2
-        env:
-          VERSION: ${{ needs.resolve-version.outputs.version }}
         with:
           tag_name: ${{ env.VERSION }}
           name: "Magicmail ${{ env.VERSION }}"
-          draft: false
-          prerelease: ${{ contains(env.VERSION, '-') }}
           files: |
             release-assets/magicmail-freebsd-amd64
