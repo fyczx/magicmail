@@ -32,14 +32,7 @@ jobs:
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           elif [ -f version.json ]; then
-            VERSION=$(python3 - <<'PY'
-import json, pathlib
-p = pathlib.Path('version.json')
-if p.exists():
-    data = json.loads(p.read_text(encoding='utf-8'))
-    print(data.get('latest', '').strip())
-PY
-)
+            VERSION=$(python3 -c 'import json, pathlib; p = pathlib.Path("version.json"); data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}; print(data.get("latest", "").strip())')
             VERSION="${VERSION:-}"
           elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
             VERSION="$GITHUB_REF_NAME"
