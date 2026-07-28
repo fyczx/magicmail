@@ -32,7 +32,7 @@ jobs:
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           elif [ -f version.json ]; then
-            VERSION=$(python - <<'PY'
+            VERSION=$(python3 - <<'PY'
 import json, pathlib
 p = pathlib.Path('version.json')
 if p.exists():
