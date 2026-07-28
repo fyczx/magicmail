@@ -14,10 +14,48 @@ on:
 permissions:
   contents: write
 
-# 从 tag 提取版本号（如 v1.0.0 → 1.0.0），手动触发时使用输入值或最新 tag
-VERSION: ${{ github.event.inputs.version || github.ref_name }}
-
 jobs:
+  resolve-version:
+    name: Resolve Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: resolve
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ -f version.json ]; then
+            VERSION=$(python - <<'PY'
+import json, pathlib
+p = pathlib.Path('version.json')
+if p.exists():
+    data = json.loads(p.read_text(encoding='utf-8'))
+    print(data.get('latest', '').strip())
+PY
+)
+            VERSION="${VERSION:-}"
+          elif [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            VERSION="$GITHUB_REF_NAME"
+          else
+            VERSION=$(git tag --sort=-version:refname | head -n 1 || true)
+            if [ -z "$VERSION" ]; then
+              VERSION="${GITHUB_REF_NAME:-dev}"
+            fi
+          fi
+
+          if [ -z "$VERSION" ]; then
+            VERSION="dev"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build-frontend:
     name: Build Frontend
     runs-on: ubuntu-latest
