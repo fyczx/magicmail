@@ -5,6 +5,16 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（例如 v1.2.3，留空则使用当前 tag/分支名）'
+        required: false
+        type: string
+      create_release:
+        description: '是否创建 GitHub Release'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -79,9 +89,11 @@ jobs:
     name: Create GitHub Release
     needs: build-freebsd-amd64
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ success() && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release != 'false')) }}
 
     steps:
+      - uses: actions/checkout@v5
+
       - name: Download build artifact
         uses: actions/download-artifact@v5
         with:
