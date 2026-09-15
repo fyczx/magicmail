@@ -26,8 +26,21 @@ const { channel, source } = resolveChannel()
 const isDevChannel = channel === 'dev'
 const stableVersion = readStableVersion()
 const stableUrl = (process.env.DOCS_STABLE_URL || 'https://magicmail.160621.xyz/').replace(/\/+$/, '')
+/** 站点正式域名，用于 canonical / Open Graph / Twitter 等绝对地址 */
+const siteUrl = (process.env.DOCS_SITE_URL || 'https://magicmail.160621.xyz').replace(/\/+$/, '')
+/** 社交分享卡片（1200×630），部署在站点根目录下 */
+const ogImage = `${siteUrl}${base}/og-image.png`
 console.log(`[DOCS_CHANNEL] ${channel} (source: ${source})`)
 console.log(`[DOCS_STABLE] version=${stableVersion || 'unknown'} url=${stableUrl}`)
+console.log(`[DOCS_SITE_URL] ${siteUrl}`)
+
+/** 站点标题与描述，dev / stable 渠道各自不同，供 head 与 transformHead 复用 */
+const siteTitle = isDevChannel ? 'Magicmail 开发版' : 'Magicmail'
+const siteDescription = isDevChannel
+  ? '魔法邮箱开发版文档（dev 分支），可能包含尚未发布的内容'
+  : '魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台，支持 IMAP 多账号聚合、统一收件箱、Webhook 通知与自托管部署。'
+const SEO_KEYWORDS = '魔法邮箱,Magicmail,IMAP,邮件管理,统一收件箱,邮件客户端,Webhook,自托管,开源邮件,多账号邮箱'
+const SEO_AUTHOR = 'Magicmail Contributors'
 
 /** dev 渠道页面标题后缀：浏览器标签页窄、站点标题被截断时也能区分 */
 const DEV_TITLE_SUFFIX = '（开发版）'
@@ -44,10 +57,8 @@ if (isDevChannel) {
 }
 
 export default defineConfig({
-  title: isDevChannel ? 'Magicmail 开发版' : 'Magicmail',
-  description: isDevChannel
-    ? '魔法邮箱开发版文档（dev 分支），可能包含尚未发布的内容'
-    : '魔法邮箱 - 基于 IMAP 协议的统一邮件管理平台',
+  title: siteTitle,
+  description: siteDescription,
   lang: 'zh-CN',
   base,
   markdown: {
@@ -88,9 +99,26 @@ export default defineConfig({
     if (pageData.title) pageData.title = `${pageData.title}${DEV_TITLE_SUFFIX}`
   },
 
-  transformHead({ head }) {
-    if (!isDevChannel) return
-    head.push(['meta', { name: 'robots', content: 'noindex,nofollow' }])
+  transformHead({ page, head }) {
+    if (isDevChannel) {
+      // 开发版禁止搜索引擎收录尚未发布的内容
+      head.push(['meta', { name: 'robots', content: 'noindex,nofollow' }])
+    } else {
+      head.push(['meta', { name: 'robots', content: 'index,follow' }])
+    }
+
+    // 由当前页面路径拼出绝对规范地址（canonical / og:url）
+    const raw = (page.relativePath || 'index.md').replace(/\.md$/, '').replace(/index$/, '').replace(/\/+$/, '')
+    const route = raw ? `${base}/${raw}.html` : `${base}/`
+    const canonical = `${siteUrl}${route}`
+    const pageTitle = page.title || siteTitle
+    const pageDesc = page.description || siteDescription
+
+    // 规范链接 + Open Graph / Twitter 的逐页动态字段
+    head.push(['link', { rel: 'canonical', href: canonical }])
+    head.push(['meta', { property: 'og:url', content: canonical }])
+    head.push(['meta', { property: 'og:title', content: pageTitle }])
+    head.push(['meta', { property: 'og:description', content: pageDesc }])
   },
 
   // 仅忽略开发环境的本地链接，保留对真实死链的检测能力
@@ -99,6 +127,22 @@ export default defineConfig({
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}/logo.svg` }],
     ['meta', { name: 'theme-color', content: '#646cff' }],
+
+    // 基础 SEO
+    ['meta', { name: 'keywords', content: SEO_KEYWORDS }],
+    ['meta', { name: 'author', content: SEO_AUTHOR }],
+    ['meta', { name: 'application-name', content: 'Magicmail' }],
+    ['meta', { name: 'apple-mobile-web-app-title', content: 'Magicmail' }],
+    ['meta', { name: 'format-detection', content: 'telephone=no' }],
+
+    // Open Graph（站点级常量，逐页标题/描述/url 在 transformHead 注入）
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:locale', content: 'zh_CN' }],
+    ['meta', { property: 'og:site_name', content: 'Magicmail' }],
+    ['meta', { property: 'og:image', content: ogImage }],
+    ['meta', { property: 'og:image:width', content: '1200' }],
+    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { property: 'og:image:alt', content: 'Magicmail 魔法邮箱' }],
   ],
 
   themeConfig: {
