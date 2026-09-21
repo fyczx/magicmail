@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [v1.3.1] - 2026-09-21
+
+### 修复
+- 修复再次添加同服务商（Outlook/Hotmail）OAuth2 邮箱时复用上一次认证结果、导致无法添加新邮箱：`oauth.authorized` / `oauth.expired` 被错误列入 SSE 重放事件，新建 SSE 连接会立即收到上一次授权的 email/refresh_token（`server/sse/broker.go`、`web/src/components/WizardOAuth2Flow.vue`）
+- 修复 Outlook 邮箱刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）：`persistOAuthTokens` 依赖 GORM `BeforeUpdate` 钩子加密，但 `db.Model(&MailAccount{}).Updates(&updates)` 把钩子作用在空模型上，导致 refresh_token/access_token 以明文入库；改为写入前显式加密（`server/imap/client.go`）
+
 ## [v1.3.0] - 2026-09-03
 
 ### 安全
