@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"magicmail/config"
+	mcrypto "magicmail/crypto"
 	"magicmail/models"
 	"magicmail/oauth2"
 	pop3pkg "magicmail/pop3"
@@ -243,21 +244,45 @@ func (c *IMAPClient) resolveAccessToken(provider oauth2.OAuth2Provider, clientID
 // 及过期时间一并写回，保证滚动后的 token 在重启后依然可用。
 //
 // 仅 OAuth2 账号需要此处理；传统密码账号直接跳过。
+//
+// ⚠️ 加密必须显式完成，不能依赖 GORM 的 BeforeUpdate 钩子：
+// 这里用的是 db.Model(&MailAccount{}).Where(...).Updates(&updates)，
+// GORM 会把钩子作用于 Model() 传入的“空模型”而非承载数据的 updates 结构体，
+// 导致 encryptSensitiveFields 跑在空结构体上、明文凭据被原样写入数据库；
+// 后续 AfterFind 解密时因非 ENC: 密文而失败，报 “RefreshToken 解密失败（密钥不匹配或密文损坏）”。
+// 因此此处参照 account_service.Update 的做法，写入前手动加密（带 IsEncrypted 守卫）。
 func (c *IMAPClient) persistOAuthTokens(db *gorm.DB) error {
 	if !oauth2.IsOAuth2Account(c.Account.AuthType) {
 		return nil
 	}
 
-	updates := models.MailAccount{
-		Password:       c.Account.Password, // Access Token（明文，写入时由 BeforeUpdate 钩子加密）
-		RefreshToken:   c.Account.RefreshToken,
-		TokenExpiresAt: c.Account.TokenExpiresAt,
+	// 显式加密敏感字段（防双重加密：已是密文则原样保留）
+	refreshToken := c.Account.RefreshToken
+	if refreshToken != "" && !mcrypto.IsEncrypted(refreshToken) {
+		enc, err := mcrypto.Encrypt(refreshToken)
+		if err != nil {
+			return fmt.Errorf("加密 RefreshToken 失败: %w", err)
+		}
+		refreshToken = enc
 	}
-	// 使用结构体更新：GORM 仅写入非零字段（Password / RefreshToken / TokenExpiresAt），
-	// 并触发 BeforeUpdate 钩子对敏感字段加密存储，不会覆盖其它列。
+	accessToken := c.Account.Password // OAuth2 模式下 Password 字段复用存储 Access Token
+	if accessToken != "" && !mcrypto.IsEncrypted(accessToken) {
+		enc, err := mcrypto.Encrypt(accessToken)
+		if err != nil {
+			return fmt.Errorf("加密 AccessToken 失败: %w", err)
+		}
+		accessToken = enc
+	}
+
+	// 使用 map 更新仅写入指定列，不触发不可靠的 BeforeUpdate 加密钩子，避免覆盖其它列。
+	updates := map[string]interface{}{
+		"password":         accessToken,
+		"refresh_token":    refreshToken,
+		"token_expires_at": c.Account.TokenExpiresAt,
+	}
 	if err := db.Model(&models.MailAccount{}).
 		Where("id = ?", c.Account.ID).
-		Updates(&updates).Error; err != nil {
+		Updates(updates).Error; err != nil {
 		return fmt.Errorf("持久化 OAuth2 Token 失败: %w", err)
 	}
 	log.Printf("💾 已持久化刷新后的 OAuth2 Token (%s)", c.Account.Email)

@@ -5,6 +5,39 @@
 
 ## 问题列表
 
+### 再次添加同服务商（Outlook）OAuth 邮箱会复用上一次认证结果
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-09-21
+- **问题描述**：使用 OAuth2（微软设备码）方式添加 Outlook/Hotmail 邮箱后，再次添加同一服务商的另一个邮箱时，向导不会发起新的授权，而是直接套用上一次认证结果（旧的 email + refresh_token），导致无法添加新邮箱。
+- **根因分析**：服务端 SSE broker 在**每次新建 SSE 连接时都会重放历史事件**（`StreamHandler` → `ReplayHistory`）。`oauth.authorized` / `oauth.expired` 这两个**一次性授权结果事件**被错误地列入 `replayableEvents`。第一次授权成功后，该事件（含上一个邮箱的 email + refresh_token）被存入用户历史；第二次添加邮箱时向导为本次授权新建 SSE 连接，立刻重放出这条陈旧事件，前端 `onOAuthAuthorized` 直接把旧结果当作本次授权成功 → 复用上一次认证结果。`broker.go` 中原本就有注释说明"一次性结果/通知类事件不应重放"，但这两个事件被遗漏了。
+- **修复方案**：
+  1. `server/sse/broker.go` — 将 `oauth.authorized`、`oauth.expired` 从 `replayableEvents` 中移除，OAuth 授权结果只在"实时发生"时推送给当前等待中的连接，不再历史重放；
+  2. `web/src/components/WizardOAuth2Flow.vue` — 给 `onOAuthAuthorized` / `onOAuthExpired` 回调加守卫：仅当 `status === 'pending'`（本次授权流程确实在等待）时才处理，避免任何陈旧或来自其它会话的事件误触发，作为防御性兜底。
+- **涉及文件**：`server/sse/broker.go`、`web/src/components/WizardOAuth2Flow.vue`
+- **附注**：`oauth.authorized` 等一次性事件本来只应提示一次；`account.health`、`account.sync_started/done` 在此之前已因"重放会误报/骚扰"被正确移除，本次补齐了 OAuth 事件的遗漏。
+
+### Outlook 刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）
+
+- **状态**：✅ 已修复未发布
+- **记录时间**：2026-09-21
+- **问题描述**：添加 Outlook/Hotmail 邮箱（OAuth 认证）后，删除一封邮件再重新同步，日志反复报错：
+
+  ```
+  ❌ [OAuth2] 账号 xxx@hotmail.com 的 RefreshToken 解密失败（密钥不匹配或密文损坏），无法刷新 AccessToken，需用户重新授权
+  ❌ 同步错误 (xxx@hotmail.com): RefreshToken 解密失败（密钥不匹配或密文损坏），需用户重新授权
+  ```
+
+  删除邮件当时能成功，但随后同步（Access Token 过期需刷新时）即失败。
+- **根因分析**：`server/imap/client.go` 的 `persistOAuthTokens`（每次 OAuth 同步刷新 Token 后落库）原本依赖 GORM 的 `BeforeUpdate` 钩子来加密。但其写法 `db.Model(&models.MailAccount{}).Where(...).Updates(&updates)` 中，GORM 把 `BeforeUpdate` 钩子作用在了 `Model()` 传入的**空模型 `&MailAccount{}`** 上，而非承载数据的 `&updates` 结构体，导致 `encryptSensitiveFields` 跑在空结构体上，`refresh_token` / `access_token` 被**以明文原样写入数据库**。复现测试已确认此行为。
+
+  为何"删除邮件能成功、重新同步才失败"：
+  1. 删除邮件时 `access_token` 仍在有效期内，`resolveAccessToken` 走 early-return 分支（不读取 `refresh_token`），故删除成功；
+  2. 重新同步时 `access_token` 已过期，必须刷新 → 读取 `refresh_token` → `AfterFind` 对明文做 `Decrypt` → `!IsEncrypted` → 报"RefreshToken 解密失败"。
+- **修复方案**：`persistOAuthTokens` 改为**写入前显式加密**（带 `IsEncrypted` 守卫防双重加密），并改用 `map` 更新只写指定列，不再依赖不可靠的钩子（与 `account_service.Update` 既有的防御式写法一致）。新增回归测试 `server/imap/client_persist_test.go`（已通过）。
+- **涉及文件**：`server/imap/client.go`、`server/imap/client_persist_test.go`
+- **自愈与补救**：启动时的迁移 `encryptPlaintextSecrets`（`database/database.go`）会扫描并把**明文**的 `refresh_token`/`password` 重新加密。因此**重启一次应用**，账号已有的明文 `refresh_token` 会被自动加密修复，之后即可正常刷新；也可在账号设置里"重新授权"该邮箱。
+
 ### 点击「立即同步」无反应，终端日志完全静默
 
 - **状态**：✅ 已修复未发布

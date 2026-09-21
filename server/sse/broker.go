@@ -44,14 +44,15 @@ type Broker struct {
 // 仅包含轻量的"状态变更/控制"类事件；高频且负载大的 mail.received / mail.sent 不重放。
 //
 // 注意：以下一次性结果/通知类事件已从重放列表移除，因为它们只应在"实时发生"时提示一次，
-// 不应在每次新建 SSE 连接（刷新页面/重连）时被历史重放，否则会造成误报：
+// 不应在每次新建 SSE 连接（刷新页面/重连）时被历史重放，否则会造成误报或错误行为：
 //   - account.health / account.sync_error：账号连接异常/同步失败的 toast，重放会反复骚扰（尤其账号已删除后仍在弹）
 //   - account.sync_started / account.sync_done：同步进度/“同步完成” toast，重放会显示虚假进度或重复提示
+//   - oauth.authorized / oauth.expired：OAuth2 设备码授权的一次性结果，绑定到单次授权会话。
+//     若重放，再次添加同服务商（如 Outlook）邮箱时新建的 SSE 连接会立即收到上一次授权的
+//     email/refresh_token，导致“复用上一次认证结果、无法添加新邮箱”的 Bug。
 // 这些事件的"当前状态"已由 accountStore.fetchAccounts() 的 status 字段反映，无需靠重放还原。
 var replayableEvents = map[string]bool{
 	"mail.synced":        true,
-	"oauth.authorized":   true,
-	"oauth.expired":      true,
 	"account.created":    true,
 	"account.updated":    true,
 	"account.deleted":    true,

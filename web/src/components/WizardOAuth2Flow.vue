@@ -109,6 +109,8 @@ let countdownTimer = null
 const sse = useSSE({
   manualConnect: true,
   onOAuthAuthorized(data) {
+    // 仅当本次授权流程处于等待状态时处理，避免来自其它会话/重连的陈旧事件误触发
+    if (status.value !== 'pending') return
     status.value = 'success'
     stopPolling()
     emit('authorized', {
@@ -120,6 +122,8 @@ const sse = useSSE({
     })
   },
   onOAuthExpired() {
+    // 同上：仅在本流程等待时处理
+    if (status.value !== 'pending') return
     status.value = 'error'
     errorMessage.value = '授权超时或失败，请重新发起'
     stopPolling()
