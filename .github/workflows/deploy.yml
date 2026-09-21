@@ -5,12 +5,12 @@ name: Deploy Docs to GitHub Pages
 # 1. 推送到 main 分支时自动触发（文档以 main 为准，dev 分支不自动部署）
 # 2. 在 GitHub 网页端手动触发（Actions 页面点击 Run workflow）
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - '.github/workflows/deploy.yml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'docs/**'
+  #     - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 # 使用官方 Pages Action 部署（上传产物方式），不需要 gh-pages 分支
