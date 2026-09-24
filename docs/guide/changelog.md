@@ -2,6 +2,87 @@
 
 所有重要变更都会记录在此文件中。
 
+## [Unreleased]
+
+## [v1.3.1] - 2026-09-21
+
+### 修复
+- 修复再次添加同服务商（Outlook/Hotmail）OAuth2 邮箱时复用上一次认证结果、导致无法添加新邮箱：`oauth.authorized` / `oauth.expired` 被错误列入 SSE 重放事件，新建 SSE 连接会立即收到上一次授权的 email/refresh_token（`server/sse/broker.go`、`web/src/components/WizardOAuth2Flow.vue`）
+- 修复 Outlook 邮箱刷新 RefreshToken 解密失败（密钥不匹配或密文损坏）：`persistOAuthTokens` 依赖 GORM `BeforeUpdate` 钩子加密，但 `db.Model(&MailAccount{}).Updates(&updates)` 把钩子作用在空模型上，导致 refresh_token/access_token 以明文入库；改为写入前显式加密（`server/imap/client.go`）
+
+## [v1.3.0] - 2026-09-03
+
+### 安全
+- 修复 JWT 以**空密钥**签发与校验：`routes.Register` 内部重复调用 `config.Load()`，而该方法返回的 `Security.JWTSecret` 恒为空串（约定由 `EnsureSecuritySecrets` 填充），导致 `main.go` 中生成的真实密钥从未生效。攻击者可用空密钥伪造任意 `user_id` 的 token 接管任意账号（含管理员）。现由 `main.go` 统一传入已完成初始化的配置
+- ⚠️ **破坏性变更**：密钥由空值改为真实值后，所有已签发 token 立即失效，升级后需重新登录一次
+
+### 新增
+- 新增 **IMAP 诊断工具 `imapdiag`**（`server/cmd/imapdiag`，用法见 `docs/dev/imap-diagnostics.md`）：排查「收不到信 / IDLE 报错」时绕过应用层直连服务器取数，输出 `STATUS` / `SELECT` / `UID SEARCH` **三条独立路径的邮件数对比**、`-all` 全目录邮件数扫描、IDLE 能力判定与原始协议交互（登录行自动脱敏）。它只存在于源码仓库、**不会打进发布产物**（`build.sh` 仅构建根包）
+- 文档：`已知问题` 新增「189.cn 等邮箱历史邮件无法通过 IMAP 收取」（服务商限制，含完整排查过程与定性证据）；`特殊邮箱` 新增运营商邮箱（189.cn）章节
+- dev 分支 push 时自动执行全量构建校验：6 个平台交叉编译、飞牛双架构 FPK 打包、网关前缀与二进制架构断言
+- 新增发布流程文档，说明分支模型、版本号同步、tag 归属校验、同步链路与验收清单
+- 文档站按构建渠道区分正式版 / 开发版：开发版带顶部横幅、页面标题后缀与 `noindex`，避免未发布内容被当成正式文档或被搜索引擎收录
+
+### 优化
+- **IMAP 定时轮询默认间隔由 5 分钟改为 1 分钟**（`MAGICMAIL_POLL_INTERVAL`，默认 `60`）：轮询是 IDLE 不可用时唯一的收信手段，5 分钟对收验证码这类场景过慢。账号数量多或担心触发服务商限流时，可显式调回 `300`
+
+### 修复
+- 修复**轮询模式下定时同步从未执行**：轮询分支的 `case <-ticker.C` 是空分支，tick 被消费后回到循环顶部又走 `default` 重新等待，同步永远不触发。表现为 POP3 账号、以及 IDLE 被判定不支持的 IMAP 账号除启动时那次全量同步外**再也不收信**
+- 修复 IDLE 瞬时故障导致 30 秒无限重连：原先只有错误命中 `BAD` / `not support` / `not allowed` 才会拉黑，网络抖动等瞬时故障会每 30 秒重连一次（单账号约 120 次/小时）。现改为指数退避（30s → 60s → 120s，上限 15 分钟），连续失败 4 次后降级为轮询
+- 修复上述降级误伤同服务器其他账号：连续失败属"环境问题"而非"服务器能力问题"，现只降级当前 Worker、不写入全局黑名单
+- 修复 **IDLE 兼容性判定靠猜**：改为在认证后探测服务器 `CAPABILITY` 是否声明 `IDLE`（RFC 2177 要求支持者必须声明）。此前只能等 IDLE 握手失败后靠错误文本识别，而 189.cn（Coremail/21cn，能力集仅 `IMAP4 IMAP4rev1 ID XLIST`）不会回 `BAD` 而是返回畸形响应，要等解析失败才反应过来；现在一次判定即转轮询，且写入全局黑名单让同服务器其他账号直接受益
+- 修复 IDLE 协议不兼容的服务器被当成"瞬时故障"反复白试：`imapwire` / `cannot read tag` / `expected atom` 这类协议解析错误是**确定性失败**（服务端响应违反 RFC 2177，重试多少次结果都一样），此前不命中判定条件，要走完 30s → 60s → 120s 共 4 次无效登录才降级。现与"服务器明确不支持"同等对待，一次失败即刻写入黑名单转轮询
+- 新增 IDLE 静态黑名单（**兜底**）：用于收拾"声明支持 IDLE、实际响应违反 RFC 2177"的服务器（如部分 Coremail 部署），它们能躲过能力探测却必在握手时失败。命中后连首次尝试都不做，避免每次启动都白跑一轮登录握手
+- 修复连接已失效时 `use of closed network connection` 刷屏：该错误是真正故障（如 IDLE 解析失败）的次生结果，现静默处理，避免掩盖真实原因误导排查
+- 修复"僵尸 IDLE"最长 25 分钟收不到信：连接看似正常但服务器从不推送时，客户端无法感知（go-imap 在 IDLE 期间读超时为 0，半开连接不会被发现）。现 IDLE 期间按 `MAGICMAIL_IDLE_HEARTBEAT`（默认跟随轮询间隔，下限 60 秒）用独立连接兜底同步一次，不中断 IDLE、不重连
+- 修复连接被服务端正常关闭后仍要干等 25 分钟：现通过监控 IDLE 命令生命周期即时感知，走退避重连流程
+- 修复点击"立即同步"代价过大：原先直接重启 Worker（断开 IDLE 长连接并重连），现改为置标志 + 唤醒通道，秒级响应且不断开 IDLE
+- 修复点击"立即同步"后界面可能一直卡在同步中：并发令牌获取失败时原先不推送任何事件，现最多等待 30 秒，超时后明确反馈"同步任务繁忙"
+- 修复飞牛统一网关下**登录后所有 API 全部失效**（响应为 `invalid token`）：统一网关注用了 `Authorization` 头，将其当作飞牛自己的凭证校验，失败时直接代答 `HTTP 200 + 纯文本 invalid token`，请求根本到不了应用。业务 JWT 改走自定义头 `X-Auth-Token`，`Authorization` 保留为回退以兼容 Docker / curl 调试
+- 修复登录态无法自愈：`init()` 此前用公开的 `/api/v1/auth/status` 探测 token，而该接口对任何 token 都返回 200，失效 token 永不清除，表现为「已登录但所有数据请求 401」。新增受保护的 `/api/v1/auth/me` 用于探活
+- 修复网关代答被当成正常响应消费：网关拒绝时返回 200 + 英文 `invalid token`，前端既不报错也不清 token，会拿该字符串当数据用。现识别为「NAS 会话失效」并**保留应用登录态**（不再误踢用户）
+- 修复飞牛自动绑定失败被静默吞掉：绑定结果此前只写入 `c.Locals` 无人消费，无从判断「理论上会自动绑定」是否生效。现成功与失败均落日志
+- 修复 Service Worker 缓存带鉴权的 API 响应：Cache API 以 URL 为键、不区分 `Authorization`，切换账号会返回他人数据；已停止缓存 API 响应
+- 修复静态资源缺少 `Cache-Control`：`index.html` 被引擎长期缓存后，升级仍会加载旧版前端（其 Vite base 可能与当前部署不一致）。现 `index.html` / `sw.js` / `*.webmanifest` 为 `no-cache`，带内容 hash 的 `assets/*` 长缓存
+
+### 构建
+- 修复 `build_fpk.sh` 可能打包到上一轮残留的 `.fpk`：`*.fpk` 的 glob 顺序使 `magicmail-1.2.0-x86.fpk` 先于 `magicmail.fpk` 被命中（`-` 0x2D < `.` 0x2E），又因新旧同名而跳过重命名，导致新包以 `magicmail.fpk` 留在目录、旧包原封不动，极易装错。现打包前先清理历史产物
+
+### 部署 & CI/CD
+- 修复 Docker 镜像 `latest` 标签从未更新的问题：浮动标签的启用条件误用了在 tag 推送时恒为 false 的 `is_default_branch`
+- 修复 cnb 同步到 GitHub 时不推送标签的问题：`git-sync` 的 `push_tags` 默认为 false，标签全部留在 cnb，导致 GitHub Actions 中 `tags: ['v*']` 的工作流永远不会触发
+- 修复在 cnb 推送 tag 不触发同步的问题：`push` 事件只响应分支推送，已单独配置 `tag_push` 事件
+- 修复 cnb 镜像构建读取不到版本号的问题：字段应为 `latest` 而非 `version`，此前镜像标签被打成 `:null`
+- 修复 `web_trigger_docker_dev` 从未成功执行的问题：其调用的 `scripts/docker.sh` 此前并不存在
+- 发布入口新增校验：`v*` tag 必须打在 `main` 分支上，打在其他分支会直接失败
+- Release 正文改为从 `docs/guide/changelog.md` 提取对应版本条目，修复正文中混入字面量 `format=`、以及内容严重缺失的问题
+- 文档站改用官方 Pages Action 部署，不再依赖 `gh-pages` 分支（原方案因 `publish_dir` 路径错误从未生效过）
+
+## [v1.2.0] - 2026-09-02
+
+### 安全
+- 飞牛形态改为**仅通过统一网关访问**（只监听 Unix Socket，不再监听 TCP 端口），避免额外的无保护暴露面；需要端口访问请部署 Docker / 独立版本
+- Unix Socket 权限收紧为 `0660`，仅应用与网关可访问，防止本机任意进程伪造 `X-Trim-Userid` 免密登录
+- 网关身份以**连接来源**为信任边界：只有 Unix Socket 连接才会读取 `X-Trim-Userid`，TCP 伪造 Header 无效
+
+### 重构
+- 后端改为**单套根路由**，统一网关透传的 `/app/magicmail` 前缀由 `middleware.BasePath` 在路由匹配前剥离（不再双注册路由）
+- 移除飞牛应用「同时开启 TCP 端口」选项与安装配置向导（已无配置项）
+
+### 新增
+- 飞牛应用包同时提供 **x86** 与 **ARM64** 两个版本（`magicmail-<版本>-x86.fpk` / `magicmail-<版本>-arm64.fpk`），本地 `./build_fpk.sh [x86|arm64]` 同步支持
+
+### 修复
+- 修复 PWA `manifest.webmanifest` 图标路径未拼 base，导致网关下图标 404
+- 修复带网关前缀访问时 401 跳转登录页丢失前缀的问题
+- 修复 CI 的 `build-fpk` 复用无 `BASE_URL` 前端产物，导致发布的 FPK 在网关下白屏
+- 修复版本更新检测：版本比较方向写反，本地版本高于远端时会误报「发现新版本」
+- 修复更新提示里版本号显示异常（`vv1.1.1` / 当前版本空白）：统一去掉 `v` 前缀，改用 JS 注入的版本号（Vite `define` 不会替换 Vue 模板中的标识符）
+- 修复更新横幅被顶栏遮挡：横幅层级提升到顶栏之上，并让内容区、侧边栏、Toast 在有横幅时整体下移
+- 修复「忽略此版本」无效：忽略的版本持久化到 localStorage，刷新/重启不再重复弹出，出现更高版本时仍会重新提示
+- 修复登录页底部版本号显示为 `v0.0.0`：版本号统一从 `src/appVersion.js` 取构建注入值
+
+
 ## [v1.1.1] - 2026-07-07
 
 - 新增Outlook OAuth2支持、一键全部标记已读、邮箱服务商品牌图标、CNB平台Docker镜像构建

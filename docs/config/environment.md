@@ -43,10 +43,23 @@ export MAGICMAIL_CORS_ORIGINS="*"
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MAGICMAIL_POLL_INTERVAL` | `300`（5 分钟）| IMAP 定时轮询间隔（秒），最低 10 秒 |
+| `MAGICMAIL_POLL_INTERVAL` | `60`（1 分钟）| IMAP 定时轮询间隔（秒），需大于 10 秒 |
+| `MAGICMAIL_IDLE_HEARTBEAT` | `0`（跟随 `MAGICMAIL_POLL_INTERVAL`）| IDLE 期间兜底同步间隔（秒），最低 60 秒，见下方说明 |
 | `MAGICMAIL_IDLE_ENABLED` | `true` | 启用 IMAP IDLE 实时推送（设为 `false` 或 `0` 关闭）|
 | `MAGICMAIL_MAX_CONCURRENT` | `10` | IMAP 最大并发连接数 |
 | `MAGICMAIL_SYNC_BATCH_SIZE` | `50` | 每次同步拉取邮件数量上限 |
+
+### `MAGICMAIL_IDLE_HEARTBEAT` 说明（僵尸 IDLE 兜底）
+
+IDLE 依赖服务器主动推送。但存在一类“僵尸连接”：TCP 连接看起来完全正常（既不报错也不断开），服务器却从不推送新邮件通知。此时客户端无法感知异常，只能干等到 25 分钟的 IDLE 重启窗口。
+
+为覆盖该场景，Worker 在 IDLE 期间会按固定节奏额外主动同步一次，即**心跳兜底**：
+
+- 使用**独立连接**拉取，不中断当前 IDLE 长连接、也不需要重连，代价仅是一次普通的收信往返；
+- 未显式配置时跟随 `MAGICMAIL_POLL_INTERVAL`；
+- 下限 **60 秒**，避免把 IDLE 退化成高频轮询。
+
+同理，若连接被服务端正常关闭（FIN/RST），go-imap 的 `Wait()` 会立即返回，Worker 走“退避 → 重连 → 连续失败 4 次后降级为轮询”流程，不会等到超时。
 
 ## 附件缓存配置（混合模式）
 
@@ -125,6 +138,18 @@ export MAGICMAIL_MIN_DISK_FREE=512        # 保留 512MB
 生产环境建议显式设置 `MAGICMAIL_JWT_SECRET` 和 `MAGICMAIL_ENCRYPT_KEY`，避免因数据库丢失导致无法解密已存储的邮箱密码。密钥长度建议 ≥ 32 字符。
 :::
 
+## 日志与诊断
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MAGICMAIL_LOG_LEVEL` | 生产 `info`，开发 `debug` | 日志级别。设为 `debug` 会输出大量 `[DEBUG]` 调试日志（含邮件解析、IMAP FETCH、MIME 解码等细节）；设为其他值（如 `info`）则在生产环境默认关闭 `[DEBUG]` 日志，避免日志膨胀与敏感调用链外泄 |
+| `MAGICMAIL_DIAG` | `false` | 启动诊断脚本是否向 `diag.log` 输出**完整环境变量**。设为 `1` 或 `true` 时才会打印全部环境变量（用于深度排障）；默认仅打印**脱敏后**的环境变量（自动过滤含 `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIAL`/`PRIVATE` 的变量）|
+
+::: warning 安全提示
+- 默认情况下启动诊断日志**不会**输出 `MAGICMAIL_JWT_SECRET`、`MAGICMAIL_ENCRYPT_KEY` 等密钥（已自动脱敏）。只有显式设置 `MAGICMAIL_DIAG=1` 才会打印完整环境变量，请谨慎使用并确保诊断日志不被外传。
+- 生产环境建议保持 `MAGICMAIL_LOG_LEVEL` 为非 `debug`（默认即为关闭），仅在临时排查时开启。
+:::
+
 ## 完整示例
 
 ```bash
@@ -151,6 +176,10 @@ export MAGICMAIL_MAX_CONCURRENT=20
 # 安全密钥（生产环境必设！）
 export MAGICMAIL_JWT_SECRET="your-super-secret-jwt-key-here"
 export MAGICMAIL_ENCRYPT_KEY="your-32-byte-encryption-key-1234567890"
+
+# 日志与诊断（可选，按需开启）
+# export MAGICMAIL_LOG_LEVEL=debug   # 临时排查时开启，日常保持关闭（默认已关闭）
+# export MAGICMAIL_DIAG=1            # 仅需在 diag.log 中查看完整环境变量排障时开启
 ```
 
 ```bash

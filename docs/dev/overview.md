@@ -52,6 +52,7 @@ magicmail/
 │   └── vite.config.js       # Vite + PWA 配置
 │
 ├── fnapp/                   # 飞牛 fnOS 应用配置
+├── scripts/                 # 构建 / 发版 / 部署脚本
 ├── docs/                    # 本文档站 (VitePress)
 └── README.md                # 项目说明
 ```
@@ -60,7 +61,7 @@ magicmail/
 
 ```bash
 # 方式一：一键启动（推荐）
-./dev.sh start
+./scripts/dev.sh start
 
 # 方式二：手动启动
 cd server && go run .          # 终端 1
@@ -91,3 +92,4 @@ cd web && pnpm dev             # 终端 2
 - [项目架构](/dev/architecture) - 详细架构说明
 - [后端开发](/dev/backend) - Go 后端开发指南
 - [前端开发](/dev/frontend) - Vue 前端开发指南
+- [发布流程](/dev/release) - 版本发布、tag 规范与 CI/CD

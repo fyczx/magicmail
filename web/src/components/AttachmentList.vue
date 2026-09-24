@@ -235,11 +235,12 @@ async function downloadWithProgress(att) {
 async function downloadAttachmentWithProgress(id, onProgress) {
   const token = localStorage.getItem('magicmail-token')
   const headers = {}
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  // 与 request.js 保持一致：飞牛网关占用 Authorization，业务 JWT 走自定义头
+  if (token) headers['X-Auth-Token'] = token
 
   const axios = (await import('axios')).default
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
-  const url = `${baseUrl}/api/v1/attachments/${id}/download`
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL
+  const url = `${baseUrl}api/v1/attachments/${id}/download`
 
   const response = await axios.get(url, {
     responseType: 'blob',
